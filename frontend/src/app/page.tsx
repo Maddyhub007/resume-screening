@@ -17,10 +17,6 @@ export default function HomePage() {
 
       {/* Hero */}
       <section style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '7rem 2rem 5rem', position: 'relative', zIndex: 1 }}>
-        <div className="anim-fade-up s1" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(124,106,247,.08)', border: '1px solid rgba(124,106,247,.2)', color: 'var(--vl)', padding: '6px 18px', borderRadius: 99, marginBottom: '2rem', fontSize: '.75rem', fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase' }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--vl)', display: 'inline-block', boxShadow: '0 0 8px var(--violet)' }} />
-          Final-Year Engineering Project · AI + NLP + Semantic Search
-        </div>
 
         <h1 className="anim-fade-up s2" style={{ fontFamily: 'var(--font-d)', fontSize: 'clamp(2.8rem,6.5vw,5rem)', fontWeight: 800, letterSpacing: '-.045em', lineHeight: 1.02, marginBottom: '1.5rem' }}>
           Recruitment powered by<br /><span className="grad-text">Semantic Intelligence</span>
