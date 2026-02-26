@@ -89,12 +89,13 @@ export default function HomePage() {
         <div style={{ position: 'absolute', top: '15%', right: '8%', width: 500, height: 500, borderRadius: '50%', background: 'radial-gradient(circle, rgba(124,106,247,.18) 0%, transparent 65%)', pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', bottom: '10%', left: '5%', width: 350, height: 300, borderRadius: '50%', background: 'radial-gradient(circle, rgba(45,212,191,.08) 0%, transparent 65%)', pointerEvents: 'none' }} />
 
-      {/* Hero */}
-      <section style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '7rem 2rem 5rem', position: 'relative', zIndex: 1 }}>
-        <div className="anim-fade-up s1" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(124,106,247,.08)', border: '1px solid rgba(124,106,247,.2)', color: 'var(--vl)', padding: '6px 18px', borderRadius: 99, marginBottom: '2rem', fontSize: '.75rem', fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase' }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--vl)', display: 'inline-block', boxShadow: '0 0 8px var(--violet)' }} />
-          Final-Year Engineering Project · AI + NLP + Semantic Search
-        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4rem', alignItems: 'center', width: '100%', position: 'relative', zIndex: 1, paddingTop: '2rem', paddingBottom: '2rem' }}>
+          {/* Left text */}
+          <div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(124,106,247,.1)', border: '1px solid rgba(124,106,247,.22)', color: '#a08fff', padding: '7px 18px', borderRadius: 99, marginBottom: '2rem', fontSize: '.72rem', fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#a08fff', display: 'inline-block', boxShadow: '0 0 8px #7c6af7' }} />
+              Final-Year Engineering Project · NLP + AI
+            </div>
 
             <h1 style={{ fontFamily: "'Poppins', sans-serif", fontSize: 'clamp(2.6rem, 5vw, 4.2rem)', fontWeight: 800, lineHeight: 1.05, letterSpacing: '-.04em', marginBottom: '1.5rem' }}>
               Stop Losing Jobs<br />
