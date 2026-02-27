@@ -1,0 +1,55 @@
+# =============================================================================
+# AI Resume Intelligence & Job Matching Platform
+# requirements.txt
+# =============================================================================
+# Install:  pip install -r requirements.txt
+# Extras:   python -m spacy download en_core_web_lg
+# =============================================================================
+
+# ── Web Framework ─────────────────────────────────────────────────────────────
+Flask==3.0.3
+flask-cors==4.0.1
+gunicorn==21.2.0
+Werkzeug==3.0.3
+ 
+# ── Environment & Config ──────────────────────────────────────────────────────
+python-dotenv==1.0.1
+
+# ── Database ──────────────────────────────────────────────────────────────────
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.31
+alembic==1.13.2
+# PostgreSQL driver (required on Render)
+psycopg2-binary==2.9.9
+
+# ── Validation ────────────────────────────────────────────────────────────────
+marshmallow==3.21.3
+marshmallow-sqlalchemy==1.1.0
+
+# ── Resume Parsing ────────────────────────────────────────────────────────────
+pdfplumber==0.11.1
+PyMuPDF==1.24.3
+python-docx==1.1.2
+
+# ── NLP ───────────────────────────────────────────────────────────────────────
+# After install: python -m spacy download en_core_web_lg
+spacy==3.7.4
+
+# ── Semantic Embeddings ───────────────────────────────────────────────────────
+sentence-transformers==3.0.1
+# CPU-only torch (smaller image on Render free tier)
+torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu
+
+# ── ML / Scoring ─────────────────────────────────────────────────────────────
+scikit-learn==1.5.1
+numpy==1.26.4
+
+# ── Lexical Search ────────────────────────────────────────────────────────────
+rank-bm25==0.2.2
+
+# ── Groq LLM ─────────────────────────────────────────────────────────────────
+groq==0.9.0
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+python-dateutil==2.9.0
+email-validator==2.2.0
