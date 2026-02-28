@@ -1,197 +1,144 @@
 'use client';
-// src/app/recruiter/reports/page.tsx
-// Analytics dashboard — pulls data from rankCandidates + listJobs.
+import { useState } from 'react';
+import { motion } from 'framer-motion';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend
+} from 'recharts';
+import { useListJobs, useListResumes, useRankCandidates } from '@/lib/hooks/useQueries';
+import { toInt, getScoreMeta } from '@/lib/utils/scores';
+import { StatCardSkeleton } from '@/components/ui/Skeleton';
+import EmptyState from '@/components/ui/EmptyState';
 
-import { useState, useEffect } from 'react';
-import { rankCandidates, listJobs } from '@/lib/api';
-import { toInt } from '@/lib/utils';
-import type { RankedCandidate, JobData } from '@/types';
-import Spinner from '@/components/ui/Spinner';
-
-function StatCard({ label, value, sub, color, icon }: { label:string; value:string; sub:string; color:string; icon:string }) {
-  return (
-    <div className="card" style={{ position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', top: '-40%', right: '-15%', width: 80, height: 80, borderRadius: '50%', background: color, opacity: .08, pointerEvents: 'none' }} />
-      <div style={{ fontSize: '.68rem', fontWeight: 800, color: 'var(--text-m)', textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>{icon}</span>{label}
-      </div>
-      <div style={{ fontFamily: 'var(--font-d)', fontSize: '2rem', fontWeight: 800, letterSpacing: '-.03em', marginBottom: 4, color }}>{value}</div>
-      <div style={{ fontSize: '.72rem', fontWeight: 600, color: 'var(--text-m)' }}>{sub}</div>
-    </div>
-  );
-}
-
-function HBar({ label, count, max, color }: { label: string; count: number; max: number; color: string }) {
-  const pct = max > 0 ? (count / max) * 100 : 0;
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-      <span style={{ width: 70, fontSize: '.75rem', color: 'var(--text-m)', fontWeight: 600, textAlign: 'right', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      <div style={{ flex: 1, height: 28, background: 'var(--surface2)', borderRadius: 8, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 8, display: 'flex', alignItems: 'center', paddingLeft: 10, transition: 'width 1s ease', minWidth: count > 0 ? 40 : 0 }}>
-          {count > 0 && <span style={{ fontSize: '.72rem', fontWeight: 800, color: '#fff', whiteSpace: 'nowrap' }}>{count}</span>}
-        </div>
-      </div>
-    </div>
-  );
-}
+const PIE_COLORS = ['#10b981','#3b82f6','#f59e0b','#f43f5e'];
+const DARK_TOOLTIP = {
+  contentStyle: { background: 'var(--surface2,#141420)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, color: '#eeeef8', fontSize: '.8rem' },
+  cursor: { fill: 'rgba(255,255,255,.03)' },
+};
 
 export default function ReportsPage() {
-  const [jobs, setJobs]             = useState<JobData[]>([]);
-  const [candidates, setCandidates] = useState<RankedCandidate[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [selectedJobId, setSelectedJobId] = useState('');
+  const [selectedJob, setSelectedJob] = useState('');
 
-  useEffect(() => {
-    listJobs(1, 50).then(res => {
-      if (res.data.success && res.data.data.length > 0) {
-        setJobs(res.data.data);
-        const first = res.data.data[0].job_id;
-        setSelectedJobId(first);
-        return rankCandidates(first, 50);
-      }
-    }).then(res => {
-      if (res?.data.success) setCandidates(res.data.data);
-    }).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  const { data: jobsData, isLoading: jobsLoading } = useListJobs(1, 50);
+  const { data: resumesData, isLoading: resumesLoading } = useListResumes(1, 100);
+  const { data: rankData, isLoading: rankLoading } = useRankCandidates(selectedJob || null);
 
-  const handleJobChange = (jobId: string) => {
-    setSelectedJobId(jobId); setCandidates([]);
-    setLoading(true);
-    rankCandidates(jobId, 50)
-      .then(res => { if (res.data.success) setCandidates(res.data.data); })
-      .catch(() => {}).finally(() => setLoading(false));
-  };
+  const jobs = jobsData?.data ?? [];
+  const totalResumes = resumesData?.total ?? 0;
+  const candidates = rankData?.data ?? [];
 
-  // Computed stats
-  const total     = candidates.length;
-  const avgScore  = total > 0 ? candidates.reduce((s, c) => s + c.scores.final_score, 0) / total : 0;
-  const excellent = candidates.filter(c => c.scores.final_score >= 0.8).length;
-  const strong    = candidates.filter(c => c.scores.final_score >= 0.65 && c.scores.final_score < 0.8).length;
-  const moderate  = candidates.filter(c => c.scores.final_score >= 0.5  && c.scores.final_score < 0.65).length;
-  const weak      = candidates.filter(c => c.scores.final_score < 0.5).length;
+  const avg = candidates.length
+    ? candidates.reduce((s, c) => s + c.scores.final_score, 0) / candidates.length
+    : 0;
 
-  // Missing skills frequency
-  const skillFreq: Record<string, number> = {};
-  candidates.forEach(c => c.explainability.missing_skills.forEach(s => { skillFreq[s] = (skillFreq[s] || 0) + 1; }));
-  const topMissing = Object.entries(skillFreq).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  // Missing skills aggregation
+  const skillCounts: Record<string, number> = {};
+  candidates.forEach(c => c.explainability.missing_skills.forEach(s => { skillCounts[s] = (skillCounts[s] || 0) + 1; }));
+  const topMissing = Object.entries(skillCounts).sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([name, count]) => ({ name, count, pct: Math.round((count / candidates.length) * 100) }));
+
+  // Score distribution for pie
+  const dist = [
+    { name: 'Excellent 80%+', value: candidates.filter(c => c.scores.final_score >= 0.8).length,                              color: '#10b981' },
+    { name: 'Strong 65–79%',  value: candidates.filter(c => c.scores.final_score >= 0.65 && c.scores.final_score < 0.8).length, color: '#3b82f6' },
+    { name: 'Moderate 50–64%',value: candidates.filter(c => c.scores.final_score >= 0.5 && c.scores.final_score < 0.65).length, color: '#f59e0b' },
+    { name: 'Weak <50%',       value: candidates.filter(c => c.scores.final_score < 0.5).length,                              color: '#f43f5e' },
+  ].filter(d => d.value > 0);
+
+  const STATS = [
+    { label: 'Resumes Uploaded', value: resumesLoading ? '…' : totalResumes, color: 'var(--violet)' },
+    { label: 'Jobs Posted',       value: jobsLoading   ? '…' : jobs.length,  color: 'var(--teal)'   },
+    { label: 'Avg Match Score',   value: candidates.length ? `${toInt(avg)}%` : '—', color: 'var(--amber)' },
+    { label: 'Top Score',          value: candidates[0] ? `${toInt(candidates[0].scores.final_score)}%` : '—', color: '#10b981' },
+  ];
 
   return (
-    <div className="anim-fade-up" style={{ padding: '2.5rem', maxWidth: 1080 }}>
-      <div style={{ marginBottom: '2rem' }}>
+    <div style={{ padding: '2.5rem', maxWidth: 1080 }}>
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: '.68rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.12em' }}>
-          <span style={{ color: 'var(--text-m)' }}>Recruiter</span>
-          <span style={{ color: 'var(--border-hi)' }}>›</span>
-          <span style={{ color: 'var(--tl)' }}>Reports</span>
+          <span style={{ color: 'var(--text-m)' }}>Recruiter</span><span style={{ color: 'var(--border-hi)' }}>›</span><span style={{ color: 'var(--tl)' }}>Reports</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <h1 style={{ fontFamily: 'var(--font-d)', fontSize: '2rem', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 6 }}>
-              Recruitment <span className="grad-text">Reports</span>
-            </h1>
-            <p style={{ color: 'var(--text2)', fontSize: '.9rem' }}>Analytics and insights from your screening pipeline</p>
-          </div>
-          {jobs.length > 0 && (
-            <select className="field-input" style={{ maxWidth: 340, cursor: 'pointer' }} value={selectedJobId} onChange={e => handleJobChange(e.target.value)}>
-              {jobs.map(j => <option key={j.job_id} value={j.job_id} style={{ background: 'var(--surface2)' }}>{j.title} @ {j.company}</option>)}
-            </select>
-          )}
+        <h1 style={{ fontFamily: 'var(--font-d)', fontSize: '2rem', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 6 }}>Recruitment <span className="grad-text">Reports</span></h1>
+        <p style={{ color: 'var(--text2)', fontSize: '.9rem', marginBottom: '2rem' }}>Analytics from your screening pipeline</p>
+
+        {/* KPI cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1.25rem', marginBottom: '2rem' }}>
+          {(resumesLoading || jobsLoading) ? Array.from({length:4}).map((_,i)=><StatCardSkeleton key={i}/>) : STATS.map(s => (
+            <motion.div key={s.label} whileHover={{ y: -1 }}
+              style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.4rem', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: '-40%', right: '-10%', width: 80, height: 80, borderRadius: '50%', background: s.color, opacity: .07 }} />
+              <div style={{ fontSize: '.68rem', fontWeight: 800, color: 'var(--text-m)', textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 10 }}>{s.label}</div>
+              <div style={{ fontFamily: 'var(--font-d)', fontSize: '2rem', fontWeight: 800, color: s.color }}>{s.value}</div>
+            </motion.div>
+          ))}
         </div>
-      </div>
 
-      {loading && <Spinner message="📊 Loading analytics…" sub="Fetching candidate scores" />}
-
-      {!loading && jobs.length === 0 && (
-        <div className="card" style={{ textAlign: 'center', padding: '4rem' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: '1rem', opacity: .3 }}>📈</div>
-          <div style={{ fontFamily: 'var(--font-d)', fontWeight: 700, marginBottom: 6 }}>No data yet</div>
-          <div style={{ color: 'var(--text-m)', fontSize: '.875rem' }}>Post a job and upload resumes to see analytics.</div>
+        {/* Job selector */}
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
+          <div className="sec-line">Select Job for Detailed Analytics</div>
+          <select className="field-input" style={{ maxWidth: 380, cursor: 'pointer' }}
+            value={selectedJob} onChange={e => setSelectedJob(e.target.value)}>
+            <option value="">-- Choose a job --</option>
+            {jobs.map(j => <option key={j.job_id} value={j.job_id}>{j.title} @ {j.company}</option>)}
+          </select>
         </div>
-      )}
 
-      {!loading && total >= 0 && jobs.length > 0 && (
-        <>
-          {/* Stat cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1.25rem', marginBottom: '2rem' }}>
-            <StatCard label="Candidates"   value={String(total)}             sub="screened for this job"    color="var(--violet)" icon="👥" />
-            <StatCard label="Avg Score"    value={`${toInt(avgScore)}%`}     sub="average AI match score"   color="var(--teal)"   icon="🎯" />
-            <StatCard label="Excellent"    value={String(excellent)}          sub="score 80%+ (top tier)"   color="var(--teal)"   icon="🟢" />
-            <StatCard label="Skill Gaps"   value={String(topMissing.length)} sub="unique missing skills"    color="var(--rose)"   icon="⚠️" />
-          </div>
+        {rankLoading && selectedJob && <div style={{ color: 'var(--text-m)', fontSize: '.875rem', padding: '2rem 0' }}>Loading analytics…</div>}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.75rem', marginBottom: '1.75rem' }}>
-            {/* Score distribution */}
-            <div className="card">
-              <div className="sec-line">Score Distribution</div>
-              <HBar label="Excellent 80%+" count={excellent} max={total} color="linear-gradient(90deg,var(--teal),var(--tl))" />
-              <HBar label="Strong 65%+"    count={strong}    max={total} color="linear-gradient(90deg,var(--violet),var(--vl))" />
-              <HBar label="Moderate 50%+"  count={moderate}  max={total} color="linear-gradient(90deg,var(--amber),#fcd34d)" />
-              <HBar label="Weak &lt;50%"   count={weak}      max={total} color="linear-gradient(90deg,var(--rose),#fb7185)" />
-              {total === 0 && <div style={{ color: 'var(--text-d)', fontSize: '.875rem', textAlign: 'center', padding: '2rem' }}>No candidates ranked yet</div>}
-            </div>
+        {!selectedJob && <EmptyState icon="📈" title="Select a job above" message="Choose a job to see detailed candidate analytics, score distribution, and skill gaps." />}
 
-            {/* Top missing skills */}
+        {candidates.length > 0 && !rankLoading && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+            {/* Top missing skills bar chart */}
             <div className="card">
               <div className="sec-line">Top Missing Skills</div>
-              {topMissing.length > 0 ? (
-                topMissing.map(([skill, count]) => (
-                  <HBar key={skill} label={skill} count={count} max={topMissing[0][1]} color="linear-gradient(90deg,var(--rose),#fb7185)" />
-                ))
-              ) : (
-                <div style={{ color: 'var(--text-d)', fontSize: '.875rem', textAlign: 'center', padding: '2rem' }}>
-                  {total === 0 ? 'No candidates ranked yet' : '🎉 No significant skill gaps!'}
-                </div>
+              {topMissing.length === 0 ? <div style={{ color: 'var(--text-d)', fontSize: '.875rem' }}>No skill gaps found</div> : (
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={topMissing} layout="vertical" margin={{ top: 0, right: 20, left: 60, bottom: 0 }}>
+                    <XAxis type="number" tick={{ fill: '#5a5a7a', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="name" tick={{ fill: '#9898b8', fontSize: 11 }} axisLine={false} tickLine={false} width={60} />
+                    <Tooltip {...DARK_TOOLTIP} formatter={(v: number) => [`${v} candidates`, 'Missing']} />
+                    <Bar dataKey="count" fill="#f43f5e" radius={[0,6,6,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               )}
             </div>
-          </div>
 
-          {/* Top candidates leaderboard */}
-          {candidates.length > 0 && (
+            {/* Score distribution pie */}
             <div className="card">
-              <div className="sec-line">🏆 Top Candidates</div>
+              <div className="sec-line">Score Distribution ({candidates.length} candidates)</div>
+              {dist.length === 0 ? <div style={{ color: 'var(--text-d)', fontSize: '.875rem' }}>No data</div> : (
+                <ResponsiveContainer width="100%" height={260}>
+                  <PieChart>
+                    <Pie data={dist} cx="50%" cy="45%" innerRadius={60} outerRadius={90} paddingAngle={3} dataKey="value">
+                      {dist.map((d, i) => <Cell key={i} fill={d.color} />)}
+                    </Pie>
+                    <Tooltip {...DARK_TOOLTIP} formatter={(v: number) => [`${v} candidates`]} />
+                    <Legend formatter={(v) => <span style={{ color: '#9898b8', fontSize: '11px' }}>{v}</span>} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {/* Leaderboard */}
+            <div className="card" style={{ gridColumn: '1 / -1' }}>
+              <div className="sec-line">Top Candidates Leaderboard</div>
               <div className="tbl-wrap">
                 <table>
                   <thead>
-                    <tr>
-                      <th>Rank</th>
-                      <th>Candidate</th>
-                      <th>Semantic</th>
-                      <th>Keyword</th>
-                      <th>Experience</th>
-                      <th>Final Score</th>
-                      <th>Matched Skills</th>
-                    </tr>
+                    <tr><th>Rank</th><th>Name</th><th>Final Score</th><th>Semantic</th><th>Skill Match</th><th>Assessment</th></tr>
                   </thead>
                   <tbody>
-                    {candidates.slice(0, 10).map(c => {
-                      const pct = toInt(c.scores.final_score);
-                      const pillCls = pct >= 80 ? 'pill-green' : pct >= 65 ? 'pill-yellow' : pct >= 50 ? 'pill-orange' : 'pill-red';
-                      const rankBg  = c.rank === 1 ? '#f59e0b' : c.rank === 2 ? '#9ca3af' : c.rank === 3 ? '#b45309' : 'var(--surface3)';
-                      const rankFg  = c.rank <= 3 ? '#000' : 'var(--text-m)';
+                    {candidates.slice(0, 8).map(c => {
+                      const meta = getScoreMeta(c.scores.final_score);
                       return (
                         <tr key={c.resume_id}>
-                          <td><div style={{ width: 28, height: 28, borderRadius: 8, background: rankBg, color: rankFg, display: 'grid', placeItems: 'center', fontFamily: 'var(--font-d)', fontSize: '.8rem', fontWeight: 800 }}>#{c.rank}</div></td>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg,var(--violet),var(--teal))', display: 'grid', placeItems: 'center', fontFamily: 'var(--font-d)', fontWeight: 800, fontSize: '.75rem', color: '#fff', flexShrink: 0 }}>
-                                {c.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                              </div>
-                              <div>
-                                <div style={{ fontWeight: 700, fontSize: '.875rem' }}>{c.name}</div>
-                                <div style={{ fontSize: '.72rem', color: 'var(--text-m)' }}>{c.email}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td><span style={{ fontFamily: 'var(--font-d)', fontWeight: 700, fontSize: '.82rem', color: 'var(--violet)' }}>{toInt(c.scores.semantic_score)}%</span></td>
-                          <td><span style={{ fontFamily: 'var(--font-d)', fontWeight: 700, fontSize: '.82rem', color: 'var(--teal)' }}>{toInt(c.scores.keyword_score)}%</span></td>
-                          <td><span style={{ fontFamily: 'var(--font-d)', fontWeight: 700, fontSize: '.82rem', color: 'var(--amber)' }}>{toInt(c.scores.experience_score)}%</span></td>
-                          <td><span className={`pill ${pillCls}`}>{pct}%</span></td>
-                          <td>
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                              {c.explainability.matched_skills.slice(0, 3).map(s => (
-                                <span key={s} className="chip chip-green" style={{ fontSize: '.68rem' }}>{s}</span>
-                              ))}
-                            </div>
-                          </td>
+                          <td><div style={{ width: 28, height: 28, borderRadius: 8, background: c.rank <= 3 ? 'var(--amber)' : 'var(--surface3)', color: c.rank <= 3 ? '#000' : 'var(--text-m)', display: 'grid', placeItems: 'center', fontFamily: 'var(--font-d)', fontSize: '.8rem', fontWeight: 800 }}>#{c.rank}</div></td>
+                          <td><span style={{ fontWeight: 600 }}>{c.name}</span></td>
+                          <td><span style={{ fontFamily: 'var(--font-d)', fontWeight: 800, padding: '4px 12px', borderRadius: 99, fontSize: '.82rem', background: `${meta.cssVar}18`, border: `1px solid ${meta.cssVar}40`, color: meta.cssVar }}>{toInt(c.scores.final_score)}%</span></td>
+                          <td><span style={{ fontSize: '.78rem', color: 'var(--violet)', fontWeight: 700 }}>{toInt(c.scores.semantic_score)}%</span></td>
+                          <td><span style={{ fontSize: '.78rem', color: 'var(--teal)', fontWeight: 700 }}>{c.explainability.skill_match_pct}%</span></td>
+                          <td><span style={{ fontSize: '.78rem', color: meta.cssVar, fontWeight: 600 }}>{meta.emoji} {meta.label}</span></td>
                         </tr>
                       );
                     })}
@@ -199,9 +146,9 @@ export default function ReportsPage() {
                 </table>
               </div>
             </div>
-          )}
-        </>
-      )}
+          </div>
+        )}
+      </motion.div>
     </div>
   );
 }

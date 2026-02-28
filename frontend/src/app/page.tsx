@@ -97,7 +97,7 @@ export default function HomePage() {
               Final-Year Engineering Project · NLP + AI
             </div>
 
-            <h1 style={{ fontFamily: "'Poppins', sans-serif", fontSize: 'clamp(2.6rem, 5vw, 4.2rem)', fontWeight: 800, lineHeight: 1.05, letterSpacing: '-.04em', marginBottom: '1.5rem' }}>
+            <h1 style={{ fontFamily: "'Roboto', sans-serif", fontSize: 'clamp(2.6rem, 5vw, 4.2rem)', fontWeight: 800, lineHeight: 1.05, letterSpacing: '-.04em', marginBottom: '1.5rem' }}>
               Stop Losing Jobs<br />
               <span style={{ background: 'linear-gradient(135deg, #7c6af7 0%, #2dd4bf 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
                 to Bad Matching.
@@ -109,7 +109,7 @@ export default function HomePage() {
             </p>
 
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '3.5rem' }}>
-              <Link href="/candidate/upload" style={{ background: 'linear-gradient(135deg, #7c6af7, #5e4fd8)', color: '#fff', padding: '14px 30px', borderRadius: 12, fontSize: '.95rem', fontWeight: 700, fontFamily: "'Poppins', sans-serif", display: 'inline-flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 24px rgba(124,106,247,.4)', textDecoration: 'none', transition: 'all .2s' }}
+              <Link href="/candidate/upload" style={{ background: 'linear-gradient(135deg, #7c6af7, #5e4fd8)', color: '#fff', padding: '14px 30px', borderRadius: 12, fontSize: '.95rem', fontWeight: 700, fontFamily: "'Roboto', sans-serif", display: 'inline-flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 24px rgba(124,106,247,.4)', textDecoration: 'none', transition: 'all .2s' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLAnchorElement).style.boxShadow = '0 8px 32px rgba(124,106,247,.5)'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'none'; (e.currentTarget as HTMLAnchorElement).style.boxShadow = '0 4px 24px rgba(124,106,247,.4)'; }}>
                 Upload My Resume →
@@ -125,7 +125,7 @@ export default function HomePage() {
             <div style={{ display: 'flex', gap: '2.5rem' }}>
               {[['3-Layer', 'AI Scoring Engine'], ['XAI', 'Full Explainability'], ['Fair', 'Bias-Aware Mode']].map(([val, sub]) => (
                 <div key={val}>
-                  <div style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 800, fontSize: '1.4rem', background: 'linear-gradient(135deg,#7c6af7,#2dd4bf)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>{val}</div>
+                  <div style={{ fontFamily: "'Roboto', sans-serif", fontWeight: 800, fontSize: '1.4rem', background: 'linear-gradient(135deg,#7c6af7,#2dd4bf)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>{val}</div>
                   <div style={{ fontSize: '.7rem', color: '#5a5a7a', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', marginTop: 2 }}>{sub}</div>
                 </div>
               ))}
@@ -158,7 +158,7 @@ export default function HomePage() {
               {/* 94% Match bubble */}
               <div style={{ position: 'absolute', top: 60, right: -10, background: 'linear-gradient(135deg,rgba(45,212,191,.15),rgba(45,212,191,.08))', border: '1px solid rgba(45,212,191,.35)', borderRadius: 12, padding: '8px 16px', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#2dd4bf', boxShadow: '0 0 10px #2dd4bf', animation: 'pulseDot 2s ease-in-out infinite' }} />
-                <span style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 800, fontSize: '.9rem', color: '#2dd4bf' }}>94% Match</span>
+                <span style={{ fontFamily: "'Roboto', sans-serif", fontWeight: 800, fontSize: '.9rem', color: '#2dd4bf' }}>94% Match</span>
               </div>
 
               {/* Skill Missing tag */}
@@ -178,7 +178,7 @@ export default function HomePage() {
       {/* ── FEATURES ──────────────────────────────────────────────────────── */}
       <section style={{ padding: '6rem 7vw', background: '#070712' }}>
         <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
-          <h2 style={{ fontFamily: "'Poppins', sans-serif", fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 12 }}>
+          <h2 style={{ fontFamily: "'Roboto', sans-serif", fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 12 }}>
             Everything You Need
           </h2>
           <p style={{ color: '#5a5a7a', fontSize: '.95rem' }}>From resume upload to final hire decision — covered end-to-end.</p>
@@ -193,7 +193,7 @@ export default function HomePage() {
               onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.border = '1px solid rgba(124,106,247,.25)'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(124,106,247,.05)'; }}
               onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.border = '1px solid rgba(255,255,255,.07)'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(14,14,28,.8)'; }}>
               <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.08)', display: 'grid', placeItems: 'center', fontSize: '1.1rem', marginBottom: '1.2rem' }}>{f.icon}</div>
-              <h3 style={{ fontFamily: "'Poppins', sans-serif", fontSize: '1.05rem', fontWeight: 700, marginBottom: 10 }}>{f.title}</h3>
+              <h3 style={{ fontFamily: "'Roboto', sans-serif", fontSize: '1.05rem', fontWeight: 700, marginBottom: 10 }}>{f.title}</h3>
               <p style={{ fontSize: '.83rem', color: '#6666888', lineHeight: 1.7, marginBottom: '1.2rem' }}>{f.desc}</p>
               <p style={{ fontSize: '.83rem', color: '#707090', lineHeight: 1.7, marginBottom: '1.2rem' }}>{f.desc}</p>
               <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
@@ -211,7 +211,7 @@ export default function HomePage() {
               onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.border = '1px solid rgba(45,212,191,.22)'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(45,212,191,.03)'; }}
               onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.border = '1px solid rgba(255,255,255,.07)'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(14,14,28,.8)'; }}>
               <div style={{ width: 36, height: 36, borderRadius: 9, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.08)', display: 'grid', placeItems: 'center', fontSize: '1rem', marginBottom: '1rem' }}>{f.icon}</div>
-              <h3 style={{ fontFamily: "'Poppins', sans-serif", fontSize: '.95rem', fontWeight: 700, marginBottom: 8 }}>{f.title}</h3>
+              <h3 style={{ fontFamily: "'Roboto', sans-serif", fontSize: '.95rem', fontWeight: 700, marginBottom: 8 }}>{f.title}</h3>
               <p style={{ fontSize: '.8rem', color: '#707090', lineHeight: 1.65, marginBottom: '1rem' }}>{f.desc}</p>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {f.tags.map(t => (
@@ -226,7 +226,7 @@ export default function HomePage() {
       {/* ── HOW IT WORKS ──────────────────────────────────────────────────── */}
       <section style={{ padding: '6rem 7vw', background: '#05050f', borderTop: '1px solid rgba(255,255,255,.04)', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
         <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
-          <h2 style={{ fontFamily: "'Poppins', sans-serif", fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 12 }}>How It Works</h2>
+          <h2 style={{ fontFamily: "'Roboto', sans-serif", fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 12 }}>How It Works</h2>
           <p style={{ color: '#5a5a7a', fontSize: '.95rem' }}>Three steps from resume to ranked match.</p>
         </div>
 
@@ -239,8 +239,8 @@ export default function HomePage() {
               <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, rgba(124,106,247,.2), rgba(45,212,191,.1))', border: '1px solid rgba(124,106,247,.25)', display: 'grid', placeItems: 'center', fontSize: '1.2rem', flexShrink: 0, boxShadow: '0 0 20px rgba(124,106,247,.15)' }}>{step.icon}</div>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                  <span style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 800, fontSize: '1rem' }}>{step.title}</span>
-                  <span style={{ fontSize: '.65rem', fontWeight: 800, color: '#4a4a7a', fontFamily: "'Poppins', sans-serif", letterSpacing: '.08em' }}>{step.num}</span>
+                  <span style={{ fontFamily: "'Roboto', sans-serif", fontWeight: 800, fontSize: '1rem' }}>{step.title}</span>
+                  <span style={{ fontSize: '.65rem', fontWeight: 800, color: '#4a4a7a', fontFamily: "'Roboto', sans-serif", letterSpacing: '.08em' }}>{step.num}</span>
                 </div>
                 <p style={{ fontSize: '.85rem', color: '#6a6a8a', lineHeight: 1.7 }}>{step.desc}</p>
               </div>
@@ -252,7 +252,7 @@ export default function HomePage() {
       {/* ── TESTIMONIALS ──────────────────────────────────────────────────── */}
       <section style={{ padding: '6rem 7vw', background: '#07071a' }}>
         <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
-          <h2 style={{ fontFamily: "'Poppins', sans-serif", fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 12 }}>
+          <h2 style={{ fontFamily: "'Roboto', sans-serif", fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 12 }}>
             Real Results. <span style={{ background: 'linear-gradient(135deg,#7c6af7,#2dd4bf)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>Real Jobs.</span>
           </h2>
           <p style={{ color: '#5a5a7a', fontSize: '.95rem', maxWidth: 500, margin: '0 auto' }}>
@@ -267,9 +267,9 @@ export default function HomePage() {
               onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,.07)'; (e.currentTarget as HTMLDivElement).style.transform = 'none'; }}>
               <p style={{ fontSize: '.875rem', color: '#9090b0', lineHeight: 1.75, flex: 1 }}>"{t.text}"</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.05)' }}>
-                <div style={{ width: 36, height: 36, borderRadius: '50%', background: t.color + '22', border: `1px solid ${t.color}44`, display: 'grid', placeItems: 'center', fontFamily: "'Poppins', sans-serif", fontWeight: 800, fontSize: '.75rem', color: t.color, flexShrink: 0 }}>{t.initials}</div>
+                <div style={{ width: 36, height: 36, borderRadius: '50%', background: t.color + '22', border: `1px solid ${t.color}44`, display: 'grid', placeItems: 'center', fontFamily: "'Roboto', sans-serif", fontWeight: 800, fontSize: '.75rem', color: t.color, flexShrink: 0 }}>{t.initials}</div>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: '.85rem', fontFamily: "'Poppins', sans-serif" }}>{t.name}</div>
+                  <div style={{ fontWeight: 700, fontSize: '.85rem', fontFamily: "'Roboto', sans-serif" }}>{t.name}</div>
                   <div style={{ fontSize: '.72rem', color: '#5a5a7a' }}>{t.role}</div>
                 </div>
               </div>
@@ -278,7 +278,7 @@ export default function HomePage() {
         </div>
 
         <div style={{ textAlign: 'center', marginTop: '3rem' }}>
-          <Link href="/candidate/upload" style={{ display: 'inline-block', background: '#fff', color: '#05050f', padding: '14px 36px', borderRadius: 99, fontFamily: "'Poppins', sans-serif", fontWeight: 800, fontSize: '.95rem', textDecoration: 'none', transition: 'all .2s', boxShadow: '0 4px 20px rgba(255,255,255,.1)' }}
+          <Link href="/candidate/upload" style={{ display: 'inline-block', background: '#fff', color: '#05050f', padding: '14px 36px', borderRadius: 99, fontFamily: "'Roboto', sans-serif", fontWeight: 800, fontSize: '.95rem', textDecoration: 'none', transition: 'all .2s', boxShadow: '0 4px 20px rgba(255,255,255,.1)' }}
             onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLAnchorElement).style.boxShadow = '0 8px 28px rgba(255,255,255,.15)'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'none'; (e.currentTarget as HTMLAnchorElement).style.boxShadow = '0 4px 20px rgba(255,255,255,.1)'; }}>
             Start Your Free Analysis →
@@ -289,7 +289,7 @@ export default function HomePage() {
       {/* ── FAQ ───────────────────────────────────────────────────────────── */}
       <section style={{ padding: '6rem 7vw', background: '#05050f', borderTop: '1px solid rgba(255,255,255,.04)' }}>
         <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
-          <h2 style={{ fontFamily: "'Poppins', sans-serif", fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 12 }}>Common Questions</h2>
+          <h2 style={{ fontFamily: "'Roboto', sans-serif", fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 12 }}>Common Questions</h2>
           <p style={{ color: '#5a5a7a', fontSize: '.95rem' }}>Everything you need to know before uploading.</p>
         </div>
 
@@ -299,7 +299,7 @@ export default function HomePage() {
               style={{ background: 'rgba(12,12,24,.8)', border: `1px solid ${openFaq === i ? 'rgba(124,106,247,.25)' : 'rgba(255,255,255,.07)'}`, borderRadius: 14, overflow: 'hidden', transition: 'border-color .2s', cursor: 'pointer' }}
               onClick={() => setOpenFaq(openFaq === i ? null : i)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.2rem 1.5rem' }}>
-                <span style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 700, fontSize: '.925rem' }}>{faq.q}</span>
+                <span style={{ fontFamily: "'Roboto', sans-serif", fontWeight: 700, fontSize: '.925rem' }}>{faq.q}</span>
                 <span style={{ color: '#5a5a7a', fontSize: '1.1rem', transition: 'transform .25s', display: 'inline-block', transform: openFaq === i ? 'rotate(180deg)' : 'rotate(0)' }}>↓</span>
               </div>
               {openFaq === i && (
@@ -316,7 +316,7 @@ export default function HomePage() {
       <section style={{ padding: '7rem 7vw', background: 'linear-gradient(135deg, #0a0820 0%, #060616 50%, #050510 100%)', borderTop: '1px solid rgba(124,106,247,.12)', position: 'relative', overflow: 'hidden', textAlign: 'center' }}>
         <div style={{ position: 'absolute', top: '-40%', left: '50%', transform: 'translateX(-50%)', width: 700, height: 500, background: 'radial-gradient(circle, rgba(124,106,247,.12) 0%, transparent 65%)', pointerEvents: 'none' }} />
         <div style={{ position: 'relative', zIndex: 1 }}>
-          <h2 style={{ fontFamily: "'Poppins', sans-serif", fontSize: 'clamp(2rem,4vw,3.2rem)', fontWeight: 800, letterSpacing: '-.04em', marginBottom: '1rem' }}>
+          <h2 style={{ fontFamily: "'Roboto', sans-serif", fontSize: 'clamp(2rem,4vw,3.2rem)', fontWeight: 800, letterSpacing: '-.04em', marginBottom: '1rem' }}>
             Ready to hire{' '}
             <span style={{ background: 'linear-gradient(135deg,#7c6af7,#2dd4bf)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>intelligently?</span>
           </h2>
@@ -324,12 +324,12 @@ export default function HomePage() {
             <span style={{ color: '#606080' }}>Start screening resumes with semantic AI or upload your resume to find perfectly matched jobs — no setup required.</span>
           </p>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/candidate/upload" style={{ background: 'linear-gradient(135deg,#7c6af7,#5e4fd8)', color: '#fff', padding: '13px 28px', borderRadius: 12, fontFamily: "'Poppins', sans-serif", fontWeight: 700, fontSize: '.9rem', textDecoration: 'none', boxShadow: '0 4px 20px rgba(124,106,247,.35)', display: 'inline-block', transition: 'all .2s' }}
+            <Link href="/candidate/upload" style={{ background: 'linear-gradient(135deg,#7c6af7,#5e4fd8)', color: '#fff', padding: '13px 28px', borderRadius: 12, fontFamily: "'Roboto', sans-serif", fontWeight: 700, fontSize: '.9rem', textDecoration: 'none', boxShadow: '0 4px 20px rgba(124,106,247,.35)', display: 'inline-block', transition: 'all .2s' }}
               onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(-2px)'; }}
               onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'none'; }}>
               Try as Candidate
             </Link>
-            <Link href="/recruiter/post-job" style={{ background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)', color: '#e8e8f0', padding: '13px 28px', borderRadius: 12, fontFamily: "'Poppins', sans-serif", fontWeight: 600, fontSize: '.9rem', textDecoration: 'none', display: 'inline-block', transition: 'all .15s' }}
+            <Link href="/recruiter/post-job" style={{ background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)', color: '#e8e8f0', padding: '13px 28px', borderRadius: 12, fontFamily: "'Roboto', sans-serif", fontWeight: 600, fontSize: '.9rem', textDecoration: 'none', display: 'inline-block', transition: 'all .15s' }}
               onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(255,255,255,.1)'; }}
               onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(255,255,255,.06)'; }}>
               Try as Recruiter

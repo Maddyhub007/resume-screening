@@ -51,7 +51,7 @@
   --emerald:    #10b981;
 
   /* Typography */
-  --font-d:     'Syne', sans-serif;      /* display */
+  --font-d:     'Roboto', sans-serif;      /* display */
   --font-b:     'DM Sans', sans-serif;   /* body */
 
   /* Shadows */
@@ -337,4 +337,10 @@
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--emerald); box-shadow: 0 0 6px rgba(16,185,129,.6);
   animation: pulseDot 2s ease-in-out infinite;
+}
+
+/* ─── Skeleton animation (global) ───────────────────────────────────────── */
+@keyframes skelAnim {
+  0%   { background-position: 200% 0 }
+  100% { background-position: -200% 0 }
 }

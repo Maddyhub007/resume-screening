@@ -1,94 +1,95 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { rankCandidates, listJobs } from '@/lib/api';
-import { toInt, getScoreLabel, extractError } from '@/lib/utils';
-import type { RankedCandidate, JobData } from '@/types';
-import Spinner from '@/components/ui/Spinner';
+import { useState, useMemo, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { motion } from 'framer-motion';
+import { useListJobs, useRankCandidates } from '@/lib/hooks/useQueries';
+import { useAppStore } from '@/lib/store/appStore';
+import { toInt, getScoreMeta } from '@/lib/utils/scores';
+import { TableSkeleton } from '@/components/ui/Skeleton';
+import EmptyState from '@/components/ui/EmptyState';
+import type { RankedCandidate } from '@/types';
 
 function RankBadge({ rank }: { rank: number }) {
   const bg = rank === 1 ? '#f59e0b' : rank === 2 ? '#9ca3af' : rank === 3 ? '#b45309' : 'var(--surface3)';
-  const fg = rank <= 3 ? '#000' : 'var(--text-m)';
-  return <div style={{ width: 28, height: 28, borderRadius: 8, background: bg, color: fg, display: 'grid', placeItems: 'center', fontFamily: 'var(--font-d)', fontSize: '.8rem', fontWeight: 800 }}>#{rank}</div>;
+  return (
+    <div style={{ width: 28, height: 28, borderRadius: 8, background: bg, color: rank <= 3 ? '#000' : 'var(--text-m)', display: 'grid', placeItems: 'center', fontFamily: 'var(--font-d)', fontSize: '.8rem', fontWeight: 800 }}>
+      #{rank}
+    </div>
+  );
 }
 
-export default function CandidatesPage() {
+function CandidatesContent() {
   const router = useRouter();
-  const [jobs, setJobs]           = useState<JobData[]>([]);
-  const [selectedJob, setSelected] = useState(() => typeof window !== 'undefined' ? sessionStorage.getItem('job_id') || '' : '');
-  const [candidates, setCandidates] = useState<RankedCandidate[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [err, setErr]             = useState('');
-  const [query, setQuery]         = useState('');
-  const [sortBy, setSortBy]       = useState<'rank' | 'final' | 'semantic'>('rank');
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const setSelectedCandidate = useAppStore(s => s.setSelectedCandidate);
+  const storeJobId = useAppStore(s => s.jobId);
+  const setJobId = useAppStore(s => s.setJobId);
+
+  const [selectedJob, setSelectedJob] = useState(searchParams.get('job') ?? storeJobId ?? '');
+  const [query, setQuery] = useState(searchParams.get('q') ?? '');
+  const [sortBy, setSortBy] = useState<'rank' | 'final' | 'semantic'>('rank');
+
+  const { data: jobsData } = useListJobs(1, 50);
+  const { data: rankData, isLoading: rankLoading, error } = useRankCandidates(selectedJob || null);
+
+  const jobs = jobsData?.data ?? [];
+  const candidates: RankedCandidate[] = rankData?.data ?? [];
 
   useEffect(() => {
-    listJobs(1, 50).then(res => {
-      if (res.data.success) setJobs(res.data.data);
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!selectedJob) return;
-    setLoading(true); setErr('');
-    rankCandidates(selectedJob, 20)
-      .then(res => {
-        // ⚠️ API: res.data.data is a FLAT ARRAY — res.data.data[0].rank
-        if (res.data.success) setCandidates(res.data.data);
-      })
-      .catch(e => setErr(extractError(e)))
-      .finally(() => setLoading(false));
-  }, [selectedJob]);
+    const params = new URLSearchParams();
+    if (selectedJob) params.set('job', selectedJob);
+    if (query) params.set('q', query);
+    const qs = params.toString();
+    window.history.replaceState(null, '', qs ? `${pathname}?${qs}` : pathname);
+  }, [selectedJob, query, pathname]);
 
   const handleJobChange = (jobId: string) => {
-    setSelected(jobId);
-    sessionStorage.setItem('job_id', jobId);
-    setCandidates([]);
+    setSelectedJob(jobId);
+    setJobId(jobId);
   };
 
-  const sorted = [...candidates]
+  const filtered = useMemo(() => candidates
     .filter(c => !query || c.name.toLowerCase().includes(query.toLowerCase()) || c.email.toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) =>
-      sortBy === 'rank'     ? a.rank - b.rank :
-      sortBy === 'final'    ? b.scores.final_score - a.scores.final_score :
-                              b.scores.semantic_score - a.scores.semantic_score
-    );
+      sortBy === 'rank'  ? a.rank - b.rank :
+      sortBy === 'final' ? b.scores.final_score - a.scores.final_score :
+                           b.scores.semantic_score - a.scores.semantic_score
+    ), [candidates, query, sortBy]);
 
   const openAnalysis = (c: RankedCandidate) => {
-    sessionStorage.setItem('selected_candidate', JSON.stringify(c));
+    setSelectedCandidate(c);
     router.push('/recruiter/analysis');
   };
 
   return (
-    <div className="anim-fade-up" style={{ padding: '2.5rem', maxWidth: 1080 }}>
-      <div style={{ marginBottom: '2rem' }}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: '.68rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.12em' }}>
-          <span style={{ color: 'var(--text-m)' }}>Recruiter</span><span style={{ color: 'var(--border-hi)' }}>›</span>
-          <span style={{ color: 'var(--tl)' }}>Rankings</span>
+    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: '.68rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.12em' }}>
+        <span style={{ color: 'var(--text-m)' }}>Recruiter</span>
+        <span style={{ color: 'var(--border-hi)' }}>›</span>
+        <span style={{ color: 'var(--tl)' }}>Rankings</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
+        <div>
+          <h1 style={{ fontFamily: 'var(--font-d)', fontSize: '2rem', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 6 }}>
+            Candidate <span className="grad-text">Rankings</span>
+          </h1>
+          <p style={{ color: 'var(--text2)', fontSize: '.9rem' }}>AI-ranked candidates for the selected job</p>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <h1 style={{ fontFamily: 'var(--font-d)', fontSize: '2rem', fontWeight: 800, letterSpacing: '-.04em', marginBottom: 6 }}>
-              Candidate <span className="grad-text">Rankings</span>
-            </h1>
-            <p style={{ color: 'var(--text2)', fontSize: '.9rem' }}>AI-ranked candidates for the selected job</p>
-          </div>
-          <button onClick={() => router.push('/recruiter/post-job')} className="btn-primary" style={{ padding: '10px 20px', borderRadius: 10, fontSize: '.875rem' }}>
-            + Post New Job
-          </button>
-        </div>
+        <button onClick={() => router.push('/recruiter/post-job')} className="btn-primary" style={{ padding: '10px 20px', borderRadius: 10, fontSize: '.875rem' }}>
+          + Post New Job
+        </button>
       </div>
 
-      {/* Job selector */}
       <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <div className="sec-line">Select Job to Rank Candidates For</div>
+        <div className="sec-line">Select Job</div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <select className="field-input" style={{ maxWidth: 380, cursor: 'pointer' }}
             value={selectedJob} onChange={e => handleJobChange(e.target.value)}>
             <option value="">-- Choose a job --</option>
             {jobs.map(j => <option key={j.job_id} value={j.job_id}>{j.title} @ {j.company}</option>)}
           </select>
-          {candidates.length > 0 && (
+          {rankData && (
             <span style={{ fontSize: '.8rem', color: 'var(--text-m)', fontWeight: 600 }}>
               {candidates.length} candidate{candidates.length !== 1 ? 's' : ''} ranked
             </span>
@@ -96,61 +97,60 @@ export default function CandidatesPage() {
         </div>
       </div>
 
-      {/* Filter + sort row */}
       {candidates.length > 0 && (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: '1.25rem' }}>
           <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 320 }}>
             <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-d)', pointerEvents: 'none' }}>🔍</span>
-            <input className="field-input" style={{ paddingLeft: 36 }} placeholder="Search candidates…" value={query} onChange={e => setQuery(e.target.value)} />
+            <input className="field-input" style={{ paddingLeft: 36 }} placeholder="Search candidates…"
+              value={query} onChange={e => setQuery(e.target.value)} />
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
-            {([['rank','Rank'],['final','Final Score'],['semantic','Semantic']] as const).map(([v, l]) => (
+            {(['rank', 'final', 'semantic'] as const).map(v => (
               <button key={v} onClick={() => setSortBy(v)}
-                style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${sortBy === v ? 'var(--violet)' : 'var(--border)'}`, background: sortBy === v ? 'var(--vd)' : 'none', color: sortBy === v ? 'var(--violet)' : 'var(--text-m)', fontSize: '.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-b)' }}>
-                {l}
+                style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${sortBy === v ? 'var(--violet)' : 'var(--border)'}`, background: sortBy === v ? 'var(--vd)' : 'none', color: sortBy === v ? 'var(--violet)' : 'var(--text-m)', fontSize: '.78rem', fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize', fontFamily: 'var(--font-b)' }}>
+                {v === 'final' ? 'Final Score' : v === 'semantic' ? 'Semantic' : 'Rank'}
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {loading && <Spinner message="🏅 Ranking Candidates…" sub="Scoring all uploaded resumes against this job" />}
-      {err && <div style={{ background: 'var(--rose-dim)', border: '1px solid rgba(244,63,94,.25)', borderRadius: 12, padding: '1rem', color: 'var(--rose)', marginBottom: '1.5rem', fontSize: '.875rem' }}>⚠️ {err}</div>}
-
-      {!loading && selectedJob && candidates.length === 0 && !err && (
-        <div className="card" style={{ textAlign: 'center', padding: '4rem' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: '1rem', opacity: .3 }}>👥</div>
-          <div style={{ fontFamily: 'var(--font-d)', fontWeight: 700, marginBottom: 6 }}>No candidates yet</div>
-          <div style={{ color: 'var(--text-m)', fontSize: '.875rem' }}>Upload resumes via the Candidate dashboard first.</div>
+      {rankLoading && <TableSkeleton rows={6} />}
+      {error && (
+        <div style={{ background: 'var(--rose-dim)', border: '1px solid rgba(244,63,94,.25)', borderRadius: 12, padding: '1rem', color: 'var(--rose)', fontSize: '.875rem' }}>
+          Failed to rank candidates. Is the backend running?
         </div>
       )}
+      {!rankLoading && selectedJob && candidates.length === 0 && !error && (
+        <EmptyState icon="👥" title="No candidates yet" message="Upload resumes via the Candidate dashboard first." />
+      )}
+      {!selectedJob && !rankLoading && (
+        <EmptyState icon="📋" title="Select a job above" message="Choose a job to see all uploaded candidates ranked by AI score." />
+      )}
 
-      {sorted.length > 0 && (
+      {filtered.length > 0 && (
         <div className="tbl-wrap">
           <table>
             <thead>
               <tr>
-                <th>Rank</th>
-                <th>Candidate</th>
-                <th>Semantic</th>
-                <th>Keyword</th>
-                <th>Experience</th>
-                <th>Final Score</th>
-                <th>Skills</th>
-                <th></th>
+                <th>Rank</th><th>Candidate</th><th>Semantic</th><th>Keyword</th>
+                <th>Experience</th><th>Final Score</th><th>Skills</th><th></th>
               </tr>
             </thead>
             <tbody>
-              {sorted.map(c => {
-                const meta = getScoreLabel(c.scores.final_score);
-                const pillCls = meta.color === 'green' ? 'pill-green' : meta.color === 'yellow' ? 'pill-yellow' : meta.color === 'orange' ? 'pill-orange' : 'pill-red';
+              {filtered.map(c => {
+                const meta = getScoreMeta(c.scores.final_score);
                 return (
-                  <tr key={c.resume_id} onClick={() => openAnalysis(c)}>
+                  <tr key={c.resume_id}
+                    onClick={() => openAnalysis(c)}
+                    style={{ cursor: 'pointer' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(255,255,255,.025)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = ''; }}>
                     <td><RankBadge rank={c.rank} /></td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <div style={{ width: 34, height: 34, borderRadius: 10, background: 'linear-gradient(135deg,var(--violet),var(--teal))', display: 'grid', placeItems: 'center', fontFamily: 'var(--font-d)', fontWeight: 800, fontSize: '.8rem', color: '#fff', flexShrink: 0 }}>
-                          {c.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                          {c.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
                         </div>
                         <div>
                           <div style={{ fontWeight: 700, fontSize: '.875rem' }}>{c.name}</div>
@@ -160,13 +160,19 @@ export default function CandidatesPage() {
                     </td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div className="score-track" style={{ width: 60 }}><div className="score-fill" style={{ width: `${toInt(c.scores.semantic_score)}%`, background: 'linear-gradient(90deg,var(--violet),var(--vl))' }} /></div>
+                        <div className="score-track" style={{ width: 60 }}>
+                          <div className="score-fill" style={{ width: `${toInt(c.scores.semantic_score)}%`, background: 'linear-gradient(90deg,var(--violet),var(--vl))' }} />
+                        </div>
                         <span style={{ fontSize: '.78rem', fontFamily: 'var(--font-d)', fontWeight: 700 }}>{toInt(c.scores.semantic_score)}%</span>
                       </div>
                     </td>
                     <td><span style={{ fontSize: '.78rem', fontFamily: 'var(--font-d)', fontWeight: 700, color: 'var(--teal)' }}>{toInt(c.scores.keyword_score)}%</span></td>
                     <td><span style={{ fontSize: '.78rem', fontFamily: 'var(--font-d)', fontWeight: 700, color: 'var(--amber)' }}>{toInt(c.scores.experience_score)}%</span></td>
-                    <td><span className={`pill ${pillCls}`}>{toInt(c.scores.final_score)}%</span></td>
+                    <td>
+                      <span style={{ fontFamily: 'var(--font-d)', fontWeight: 800, padding: '4px 12px', borderRadius: 99, fontSize: '.82rem', background: `${meta.cssVar}18`, border: `1px solid ${meta.cssVar}40`, color: meta.cssVar }}>
+                        {toInt(c.scores.final_score)}%
+                      </span>
+                    </td>
                     <td>
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 200 }}>
                         {c.explainability.matched_skills.slice(0, 2).map(s => <span key={s} className="chip chip-green" style={{ fontSize: '.68rem' }}>{s}</span>)}
@@ -185,6 +191,16 @@ export default function CandidatesPage() {
           </table>
         </div>
       )}
+    </motion.div>
+  );
+}
+
+export default function CandidatesPage() {
+  return (
+    <div style={{ padding: '2.5rem', maxWidth: 1080 }}>
+      <Suspense fallback={<TableSkeleton rows={6} />}>
+        <CandidatesContent />
+      </Suspense>
     </div>
   );
 }
