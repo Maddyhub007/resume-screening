@@ -1,4 +1,3 @@
-
 """
 app/schemas/base.py
 

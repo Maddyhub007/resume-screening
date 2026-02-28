@@ -1,4 +1,3 @@
-
 """
 app/schemas/response/resume.py — Resume response serialisation schemas.
 """

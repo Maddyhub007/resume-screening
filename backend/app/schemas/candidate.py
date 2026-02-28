@@ -1,4 +1,3 @@
-
 """
 app/schemas/candidate.py — Marshmallow schemas for Candidate endpoints.
 """

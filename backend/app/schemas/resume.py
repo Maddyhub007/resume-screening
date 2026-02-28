@@ -1,4 +1,3 @@
-
 """
 app/schemas/resume.py — Marshmallow schemas for Resume endpoints.
 """

@@ -1,4 +1,3 @@
-
 """
 app/schemas/response/recruiter.py — Recruiter response serialisation schemas.
 """

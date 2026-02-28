@@ -1,4 +1,3 @@
-
 """
 app/schemas/response/ats_score.py — ATS Score response serialisation schemas.
 """

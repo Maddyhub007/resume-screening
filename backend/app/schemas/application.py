@@ -1,4 +1,3 @@
-
 """
 app/schemas/application.py — Marshmallow schemas for Application endpoints.
 """

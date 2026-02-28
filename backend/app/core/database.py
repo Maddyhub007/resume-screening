@@ -33,13 +33,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 # Declarative base with SQLAlchemy 2.x style
 # ─────────────────────────────────────────────────────────────────────────────
 
-class _Base(DeclarativeBase):
-    """Internal declarative base — not imported directly outside this module."""
-    pass
-
 
 # Single db instance — shared across all models
-db = SQLAlchemy(model_class=_Base)
+db = SQLAlchemy()
 
 # Generic TypeVar for repository return types
 ModelT = TypeVar("ModelT", bound="BaseModel")

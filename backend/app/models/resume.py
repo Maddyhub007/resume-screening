@@ -32,7 +32,7 @@ from app.models.mixins import SoftDeleteMixin
 logger = logging.getLogger(__name__)
 
 
-class Resume(BaseModel, SoftDeleteMixin):
+class Resume( SoftDeleteMixin, BaseModel):
     """
     Parsed resume record.
 

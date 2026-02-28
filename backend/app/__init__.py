@@ -1,4 +1,3 @@
-
 """
 app/__init__.py  —  Flask Application Factory
 
@@ -10,8 +9,9 @@ All wiring happens here in a defined order:
   4. Initialise database
   5. Register middleware hooks
   6. Register global error handlers
-  7. Register blueprints
-  8. Validate critical config at startup
+  7. Initialise service layer (ServiceFactory)
+  8. Register blueprints
+  9. Validate critical config at startup
 
 This factory pattern ensures:
   - No circular imports (models import db, not the app)
@@ -33,7 +33,7 @@ import logging
 import os
 from typing import Any
 
-from flask import Flask, g, jsonify
+from flask import Flask, jsonify
 
 from app.core.logging import configure_logging
 from config import get_config
@@ -87,10 +87,13 @@ def create_app(env: str | None = None) -> Flask:
     # ── 6. Error handlers ─────────────────────────────────────────────────────
     _register_error_handlers(app)
 
-    # ── 7. Blueprints ─────────────────────────────────────────────────────────
+    # ── 7. Service layer ──────────────────────────────────────────────────────
+    _init_services(app)
+
+    # ── 8. Blueprints ─────────────────────────────────────────────────────────
     _register_blueprints(app)
 
-    # ── 8. Startup validation ─────────────────────────────────────────────────
+    # ── 9. Startup validation ─────────────────────────────────────────────────
     _validate_config(app)
 
     logger.info("Application ready.", extra={"env": env or os.getenv("APP_ENV", "development")})
@@ -122,6 +125,36 @@ def _register_middleware(app: Flask) -> None:
     """Register before/after request hooks."""
     from app.core.middleware import register_middleware
     register_middleware(app)
+
+
+def _init_services(app: Flask) -> None:
+    """
+    Build and cache the service layer via ServiceFactory.
+
+    Services are stored in app.extensions["services"] — a lightweight
+    registry that persists across requests without circular imports.
+    Routes access services via:
+        svcs = current_app.extensions["services"]
+    """
+    try:
+        from app.services.service_factory import ServiceFactory
+        services = ServiceFactory.create_all(app.config)
+        app.extensions["services"] = services
+        logger.info(
+            "Service layer initialised",
+            extra={
+                "groq_available":      services.groq.available,
+                "embedding_available": services.embedding.available,
+            },
+        )
+    except Exception as exc:
+        # Non-fatal: app can boot without services (health endpoints still work)
+        logger.error(
+            "Service layer failed to initialise",
+            extra={"error": str(exc)},
+            exc_info=True,
+        )
+        app.extensions["services"] = None
 
 
 def _register_error_handlers(app: Flask) -> None:

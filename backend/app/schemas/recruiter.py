@@ -1,4 +1,3 @@
-
 """
 app/schemas/recruiter.py — Marshmallow schemas for Recruiter endpoints.
 """

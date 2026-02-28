@@ -1,89 +1,131 @@
-
 """
 app/api/v1/health.py
 
-Health check endpoints.
+Health and readiness check endpoints.
 
-Endpoints:
-  GET /api/v1/health          — Liveness probe (always 200 if app is up).
-  GET /api/v1/health/ready    — Readiness probe (200 only if DB is reachable).
-
-These are called by:
-  - Render health checks (keeps the free-tier instance from spinning down)
-  - Frontend to detect backend availability
-  - Load balancers / uptime monitors
-
-Design:
-  - /health MUST respond even when DB is down (liveness ≠ readiness).
-  - /health/ready performs an actual DB ping — returns 503 if unreachable.
+Routes:
+  GET  /health          — liveness probe (always 200 if app is running)
+  GET  /health/ready    — readiness probe (checks DB + services)
+  GET  /health/services — detailed per-service status
 """
 
 import logging
-from datetime import datetime, timezone
+import time
 
 from flask import Blueprint, current_app
-from sqlalchemy import text
 
-from app.core.database import db
 from app.core.responses import error, success
 
 logger = logging.getLogger(__name__)
 
 health_bp = Blueprint("health", __name__)
 
+_START_TIME = time.time()
+
 
 @health_bp.get("/health")
-def liveness() -> tuple:
+def liveness():
     """
-    Liveness probe — confirms the Flask process is alive.
+    GET /api/v1/health
 
-    Returns 200 as long as the application is running.
-    Does NOT check database connectivity.
+    Liveness probe — returns 200 if the Flask app is running.
+    Used by container orchestrators to know the process is alive.
     """
     return success(
         data={
-            "status":    "ok",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "app":       current_app.config.get("APP_NAME", "ATS Platform"),
-            "version":   current_app.config.get("API_VERSION", "v1"),
+            "status": "ok",
+            "uptime_seconds": round(time.time() - _START_TIME, 1),
         },
-        message="Service is running.",
+        message="Service is alive.",
     )
 
 
 @health_bp.get("/health/ready")
-def readiness() -> tuple:
+def readiness():
     """
-    Readiness probe — confirms the app can serve requests.
+    GET /api/v1/health/ready
 
-    Checks:
-      - Database is reachable (executes 'SELECT 1').
+    Readiness probe — checks that the app can serve traffic.
+    Returns 200 only if:
+      - Database connection is healthy
+      - Service layer is initialised
 
-    Returns:
-      200 if all checks pass.
-      503 if any check fails (app should not receive traffic).
+    Returns 503 if any critical dependency is unavailable.
     """
-    checks: dict = {}
-    all_ok = True
+    checks = {}
+    healthy = True
 
-    # ── Database ping ─────────────────────────────────────────────────────────
+    # ── Database check ────────────────────────────────────────────────────────
     try:
-        db.session.execute(text("SELECT 1"))
-        checks["database"] = "ok"
+        from app.core.database import db
+        db.session.execute(db.text("SELECT 1"))
+        checks["database"] = {"status": "ok"}
     except Exception as exc:
-        logger.error("Readiness DB check failed", extra={"error": str(exc)})
-        checks["database"] = f"error: {str(exc)}"
-        all_ok = False
+        checks["database"] = {"status": "error", "detail": str(exc)}
+        healthy = False
 
-    if all_ok:
-        return success(
-            data={"status": "ready", "checks": checks},
-            message="Service is ready.",
+    # ── Service layer check ───────────────────────────────────────────────────
+    try:
+        svcs = current_app.extensions.get("services")
+        if svcs is None:
+            checks["services"] = {"status": "error", "detail": "ServiceFactory not initialised."}
+            healthy = False
+        else:
+            checks["services"] = {"status": "ok"}
+    except Exception as exc:
+        checks["services"] = {"status": "error", "detail": str(exc)}
+        healthy = False
+
+    status_code = 200 if healthy else 503
+    return (
+        success(data={"status": "ready" if healthy else "not_ready", "checks": checks})
+        if healthy
+        else error(
+            "Service not ready.",
+            code="NOT_READY",
+            status=503,
+            details={"checks": checks},
         )
+    )
 
-    return error(
-        message="Service not ready. Some dependencies are unavailable.",
-        code="SERVICE_UNAVAILABLE",
-        status=503,
-        details={"checks": checks},
+
+@health_bp.get("/health/services")
+def service_status():
+    """
+    GET /api/v1/health/services
+
+    Returns per-service availability:
+      - embedding:  whether sentence-transformers model is loaded
+      - groq:       whether Groq API key is configured + client is live
+      - database:   connection pool status
+    """
+    svcs = current_app.extensions.get("services")
+
+    embedding_ok = False
+    groq_ok      = False
+
+    if svcs:
+        embedding_svc = getattr(svcs, "embedding", None)
+        groq_svc      = getattr(svcs, "groq", None)
+        embedding_ok  = bool(embedding_svc and getattr(embedding_svc, "available", False))
+        groq_ok       = bool(groq_svc and getattr(groq_svc, "available", False))
+
+    db_ok = False
+    try:
+        from app.core.database import db
+        db.session.execute(db.text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        pass
+
+    return success(
+        data={
+            "services": {
+                "database":   {"available": db_ok,      "description": "PostgreSQL / SQLite connection"},
+                "embedding":  {"available": embedding_ok,"description": "Sentence-transformers (MiniLM)"},
+                "groq":       {"available": groq_ok,     "description": "Groq LLM API (Llama 3.1)"},
+            },
+            "all_optional_services_available": embedding_ok and groq_ok,
+        },
+        message="Service status retrieved.",
     )

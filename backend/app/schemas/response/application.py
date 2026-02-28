@@ -1,4 +1,3 @@
-
 """
 app/schemas/response/application.py — Application response serialisation schemas.
 """

@@ -36,7 +36,7 @@ from app.models.mixins import SearchableMixin, SoftDeleteMixin
 logger = logging.getLogger(__name__)
 
 
-class Job(BaseModel, SoftDeleteMixin, SearchableMixin):
+class Job( SoftDeleteMixin, SearchableMixin, BaseModel):
     """
     Job posting.
 

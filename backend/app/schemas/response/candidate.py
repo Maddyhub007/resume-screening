@@ -1,4 +1,3 @@
-
 """
 app/schemas/response/candidate.py — Candidate response serialisation schemas.
 

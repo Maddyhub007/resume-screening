@@ -2,54 +2,62 @@
 """
 tests/unit/test_exceptions.py
 
-Tests for the exception hierarchy and to_dict() serialisation.
+Unit tests for the custom exception hierarchy.
 """
-
-from app.core.exceptions import (
-    AppError,
-    CandidateNotFound,
-    JobNotFound,
-    ResumeNotFound,
-    ResumeParseFailed,
-    ValidationError,
-)
+import pytest
 
 
-def test_app_error_defaults():
-    exc = AppError()
-    assert exc.status_code == 500
-    assert exc.error_code == "INTERNAL_ERROR"
-    assert "error_code" in exc.to_dict()
+class TestBaseApiException:
+    def test_has_message(self, app):
+        with app.app_context():
+            from app.core.exceptions import APIException
+            exc = APIException("Something went wrong", status_code=500)
+            assert exc.message == "Something went wrong"
+            assert exc.status_code == 500
+
+    def test_default_error_code(self, app):
+        with app.app_context():
+            from app.core.exceptions import APIException
+            exc = APIException("error")
+            assert exc.error_code is not None
+
+    def test_to_dict(self, app):
+        with app.app_context():
+            from app.core.exceptions import APIException
+            exc = APIException("msg", error_code="TEST_ERR", status_code=400)
+            d = exc.to_dict()
+            assert d["error"]["error_code"] == "TEST_ERR"
+            assert d["error"]["message"] == "msg"
+            assert d["success"] is False
 
 
-def test_validation_error_with_field():
-    exc = ValidationError("Email is required.", field="email")
-    d = exc.to_dict()
-    assert d["error_code"] == "VALIDATION_ERROR"
-    assert d["details"]["field"] == "email"
-    assert exc.status_code == 400
+class TestDomainExceptions:
+    def test_not_found_exception(self, app):
+        with app.app_context():
+            from app.core.exceptions import NotFoundException
+            exc = NotFoundException("Candidate not found", error_code="CANDIDATE_NOT_FOUND")
+            assert exc.status_code == 404
 
+    def test_conflict_exception(self, app):
+        with app.app_context():
+            from app.core.exceptions import ConflictException
+            exc = ConflictException("Duplicate", error_code="DUPE")
+            assert exc.status_code == 409
 
-def test_resume_not_found():
-    exc = ResumeNotFound("abc-123")
-    assert exc.status_code == 404
-    assert "abc-123" in exc.message
-    assert exc.to_dict()["details"]["resume_id"] == "abc-123"
+    def test_validation_exception(self, app):
+        with app.app_context():
+            from app.core.exceptions import ValidationException
+            exc = ValidationException("Bad input", error_code="INVALID")
+            assert exc.status_code == 400
 
+    def test_unprocessable_exception(self, app):
+        with app.app_context():
+            from app.core.exceptions import UnprocessableException
+            exc = UnprocessableException("Cannot process", error_code="NOPE")
+            assert exc.status_code == 422
 
-def test_job_not_found():
-    exc = JobNotFound("job-xyz")
-    assert exc.status_code == 404
-    assert exc.error_code == "JOB_NOT_FOUND"
-
-
-def test_resume_parse_failed():
-    exc = ResumeParseFailed("File is corrupted.")
-    assert exc.status_code == 422
-    assert "corrupted" in exc.message
-
-
-def test_candidate_not_found():
-    exc = CandidateNotFound("cand-001")
-    assert exc.status_code == 404
-    assert exc.to_dict()["details"]["candidate_id"] == "cand-001"
+    def test_forbidden_exception(self, app):
+        with app.app_context():
+            from app.core.exceptions import ForbiddenException
+            exc = ForbiddenException("Access denied", error_code="FORBIDDEN")
+            assert exc.status_code == 403
