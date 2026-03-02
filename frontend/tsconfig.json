@@ -16,6 +16,7 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+<<<<<<< HEAD
     "plugins": [
       {
         "name": "next"
@@ -27,6 +28,10 @@
       ]
     },
     "target": "ES2017"
+=======
+    "plugins": [{ "name": "next" }],
+    "paths": { "@/*": ["./*"] }
+>>>>>>> b8db210731f2b96d5b0b9a057c8f18eff1c914ca
   },
   "include": [
     "next-env.d.ts",
