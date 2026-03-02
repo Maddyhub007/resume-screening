@@ -198,7 +198,7 @@ export default function RecruiterDashboard() {
           ) : (
             <div className="space-y-2">
               {jobs.map((job) => (
-                <Link key={job.id} href={`/recruiter/jobs/${job.id}`} className="card-hover p-4 flex items-center gap-4 group block">
+                <Link key={job.id} href={`/recruiter/jobs/${job.id}`} className="card-hover p-4 flex items-center gap-4 group">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-text-primary group-hover:text-electric-400 transition-colors truncate">{job.title}</div>
                     <div className="text-text-muted text-xs mt-0.5">{job.location} · {job.job_type} · {formatRelativeDate(job.created_at)}</div>
