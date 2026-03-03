@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from "axios";
 import {
-  ApiResponse, PaginationMeta, Candidate, Recruiter, Job, Resume,
+  ApiResponse, PaginationMeta, Candidate, Recruiter, Job, Resume, AuthPayload,
   Application, AtsScore, ScoreMatchResult, RankedCandidate, JobRecommendation,
   JobEnhancement, RecruiterDashboard, PipelineData,
   CreateCandidateForm, CreateRecruiterForm, CreateJobForm, StageUpdateForm,
@@ -23,6 +23,7 @@ export class ApiError extends Error {
 const ERROR_MESSAGES: Record<string, string> = {
   CANDIDATE_EMAIL_CONFLICT: "This email is already registered.",
   RECRUITER_EMAIL_CONFLICT: "This email is already registered.",
+  USER_NOT_FOUND: "No account found for this email.",
   DUPLICATE_APPLICATION: "You have already applied to this job.",
   JOB_NOT_ACTIVE: "This job is no longer accepting applications.",
   RESUME_OWNERSHIP_MISMATCH: "Please select your own resume.",
@@ -134,6 +135,14 @@ async function del<T>(url: string): Promise<ApiResponse<T>> {
 
 // ─── API Functions ────────────────────────────────────────────────────────────
 export const api = {
+  // Auth
+  login: (body: { email: string; role: "candidate" | "recruiter" }) =>
+    post<AuthPayload>("/auth/login", body),
+  registerCandidate: (body: CreateCandidateForm) =>
+    post<AuthPayload>("/auth/register/candidate", body),
+  registerRecruiter: (body: CreateRecruiterForm) =>
+    post<AuthPayload>("/auth/register/recruiter", body),
+
   // Health
   getHealth: () => get<{ status: string; uptime_seconds: number }>("/health"),
   getHealthReady: () => get<{ status: string }>("/health/ready"),

@@ -163,6 +163,13 @@ export interface Application {
   resume?: Resume;
 }
 
+
+export interface AuthPayload {
+  role: "candidate" | "recruiter";
+  user_id: string;
+  user: Candidate | Recruiter;
+}
+
 // ─── API Shapes ───────────────────────────────────────────────────────────────
 export interface PaginationMeta {
   total: number;

@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store/authStore";
-import { api, getFriendlyError } from "@/lib/api/client";
+import { ApiError, api, getFriendlyError } from "@/lib/api/client";
 import { Briefcase, User, ArrowRight, Loader2, Zap } from "lucide-react";
 import { toast } from "sonner";
 
@@ -33,27 +33,17 @@ export default function LoginPage() {
     if (!email || !role) return;
     setLoading(true);
     try {
-      if (role === "candidate") {
-        const res = await api.listCandidates(1, 5, { search: email });
-        const found = res.data.find((c) => c.email.toLowerCase() === email.toLowerCase());
-        if (found) {
-          setAuth("candidate", found.id, found.full_name);
-          router.push("/candidate/dashboard");
-          return;
-        }
+      const res = await api.login({ email, role });
+      setAuth(role, res.data.user_id, res.data.user.full_name);
+      router.push(role === "candidate" ? "/candidate/dashboard" : "/recruiter/dashboard");
+      return;
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "USER_NOT_FOUND") {
+        setNotFound(true);
+        setStep("register");
       } else {
-        const res = await api.listRecruiters(1, 5, { search: email });
-        const found = res.data.find((r) => r.email.toLowerCase() === email.toLowerCase());
-        if (found) {
-          setAuth("recruiter", found.id, found.full_name);
-          router.push("/recruiter/dashboard");
-          return;
-        }
+        toast.error(getFriendlyError(err));
       }
-      setNotFound(true);
-      setStep("register");
-    } catch {
-      toast.error("Could not reach server. Is the backend running?");
     } finally {
       setLoading(false);
     }
@@ -65,13 +55,13 @@ export default function LoginPage() {
     setLoading(true);
     try {
       if (role === "candidate") {
-        const res = await api.createCandidate({ full_name: fullName, email });
-        setAuth("candidate", res.data.id, res.data.full_name);
+        const res = await api.registerCandidate({ full_name: fullName, email });
+        setAuth("candidate", res.data.user_id, res.data.user.full_name);
         toast.success("Account created! Welcome aboard.");
         router.push("/candidate/dashboard");
       } else {
-        const res = await api.createRecruiter({ full_name: fullName, email, company_name: companyName });
-        setAuth("recruiter", res.data.id, res.data.full_name);
+        const res = await api.registerRecruiter({ full_name: fullName, email, company_name: companyName });
+        setAuth("recruiter", res.data.user_id, res.data.user.full_name);
         toast.success("Account created! Welcome aboard.");
         router.push("/recruiter/dashboard");
       }
