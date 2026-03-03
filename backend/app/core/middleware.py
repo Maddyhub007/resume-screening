@@ -88,28 +88,6 @@ def register_middleware(app: Flask) -> None:
         )
         return response
 
-    @app.teardown_request
-    def _teardown_request(exception=None) -> None:
-        """
-        Finalise DB transaction for the request.
-
-        - Commit on success for mutating methods.
-        - Roll back on exceptions or failed commits.
-        """
-        # pylint: disable=import-outside-toplevel
-        from app.core.database import db
-
-        if exception:
-            db.session.rollback()
-            return
-
-        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-            try:
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-                logger.error("Session commit failed; rolled back.", exc_info=True)
-
     @app.teardown_appcontext
     def _teardown(exception=None) -> None:
         """

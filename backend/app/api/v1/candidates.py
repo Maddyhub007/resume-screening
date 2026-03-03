@@ -361,7 +361,7 @@ def upload_resume(candidate_id: str):
             resume.projects_list            = parse_result.projects
             resume.summary_text             = parse_result.summary_text
             resume.raw_text                 = parse_result.raw_text
-            resume.total_experience_years   = parse_result.total_experience_years
+            resume.total_experience_years   = parse_result.experience_years
             resume.skill_count              = len(parse_result.skills)
             repo.save(resume)
             logger.info("Resume parsed successfully", extra={"resume_id": resume_id})
