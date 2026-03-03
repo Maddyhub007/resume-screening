@@ -160,7 +160,7 @@ export const api = {
     return res.data;
   },
   getCandidateRecommendations: (id: string, params?: Record<string, unknown>) =>
-    post<{ total: number; recommendations: JobRecommendation[] }>(`/candidates/${id}/recommendations`, params),
+    post<JobRecommendation[]>(`/candidates/${id}/recommendations`, params),
 
   // Recruiters
   listRecruiters: (page = 1, limit = 20, params?: Record<string, unknown>) =>

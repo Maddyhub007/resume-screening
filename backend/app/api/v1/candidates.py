@@ -50,8 +50,6 @@ def list_candidates():
     if err:
         return err
 
-    svcs = get_services()
-    repo = svcs.candidate_ranking.candidate_repo if hasattr(svcs, "candidate_ranking") else None
 
     # Access repo directly through service factory repos
     try:

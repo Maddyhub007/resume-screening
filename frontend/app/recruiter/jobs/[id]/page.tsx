@@ -7,14 +7,13 @@ import { AtsScoreCard } from "@/components/shared/AtsScoreCard";
 import { SkillBadge, ScoreBadge, StageBadge } from "@/components/shared";
 import { formatSalary, formatExperience, formatRelativeDate, formatScore } from "@/lib/utils/formatters";
 import {
-  ArrowLeft, Zap, Loader2, MapPin, Briefcase, DollarSign, Users, TrendingUp, ChevronRight,
+  ArrowLeft, Zap, Loader2, MapPin, Briefcase, DollarSign, Users, X ,TrendingUp, ChevronRight,
   AlertTriangle, CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { useState, useEffect, KeyboardEvent } from "react";
 import { useForm } from "react-hook-form";
-import { X } from "lucide-react";
 import { JobEnhancement } from "@/lib/types";
 
 export default function RecruiterJobDetailPage() {
@@ -48,7 +47,9 @@ export default function RecruiterJobDetailPage() {
     enabled: activeTab === "candidates",
   });
 
-  const { register: editRegister, handleSubmit: editHandleSubmit, reset: editReset, formState: { isPending: editPending } } = useForm<{ title: string; description: string; location: string; status: string; experience_years: number; salary_min: number | null; salary_max: number | null }>({});
+  const { register: editRegister, handleSubmit: editHandleSubmit, reset: editReset } = useForm<{ title: string; description: string; location: string; status: string; experience_years: number; salary_min: number | null; salary_max: number | null }>({});
+
+  const job = jobData?.data;
 
   useEffect(() => {
     if (job) {
@@ -85,9 +86,7 @@ export default function RecruiterJobDetailPage() {
     onError: (err) => toast.error(getFriendlyError(err)),
   });
 
-  const job = jobData?.data;
 
-  const { userId } = useAuthStore();
 
   if (isLoading) return <div className="p-8 space-y-4"><div className="card p-6 skeleton h-48" /></div>;
   if (!job) return <div className="p-8 text-center text-text-muted">Job not found.</div>;

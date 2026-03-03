@@ -61,6 +61,8 @@ def create_app(env: str | None = None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config_class)
 
+    app.url_map.strict_slashes = False
+
     # ── 2. Configure logging (must be first — everything after logs) ──────────
     configure_logging(
         level=app.config.get("LOG_LEVEL", "INFO"),
@@ -107,12 +109,17 @@ def create_app(env: str | None = None) -> Flask:
 def _init_extensions(app: Flask) -> None:
     """Initialise Flask extensions."""
     from app.core.extensions import cors
+
     cors.init_app(
         app,
         resources={r"/api/*": {"origins": app.config["ALLOWED_ORIGINS"]}},
         supports_credentials=True,
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization"],
     )
-    logger.debug("CORS initialised", extra={"origins": app.config["ALLOWED_ORIGINS"]})
+    logger.debug(
+        "CORS initialised",
+        extra={"origins": app.config["ALLOWED_ORIGINS"]})
 
 
 def _init_database(app: Flask) -> None:
