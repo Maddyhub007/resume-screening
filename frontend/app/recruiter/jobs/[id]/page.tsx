@@ -23,11 +23,15 @@ export default function RecruiterJobDetailPage() {
   const [enhancement, setEnhancement] = useState<JobEnhancement | null>(null);
   const [activeTab, setActiveTab] = useState<"details" | "edit" | "candidates" | "performance">("details");
   const [editSkills, setEditSkills] = useState<string[]>([]);
+  
+ 
 
   const { data: jobData, isLoading } = useQuery({
     queryKey: queryKeys.job(id),
     queryFn: () => api.getJob(id),
   });
+
+   const job = jobData?.data;
 
   const { data: candidatesData, isLoading: candidatesLoading } = useQuery({
     queryKey: queryKeys.jobCandidates(id),
@@ -47,10 +51,27 @@ export default function RecruiterJobDetailPage() {
     enabled: activeTab === "candidates",
   });
 
+<<<<<<< HEAD:frontend/app/recruiter/jobs/[id]/page.tsx
   const { register: editRegister, handleSubmit: editHandleSubmit, reset: editReset } = useForm<{ title: string; description: string; location: string; status: string; experience_years: number; salary_min: number | null; salary_max: number | null }>({});
 
   const job = jobData?.data;
 
+=======
+ const {
+  register: editRegister,
+  handleSubmit: editHandleSubmit,
+  reset: editReset,
+  formState: { isSubmitting: editPending }
+} = useForm<{
+  title: string;
+  description: string;
+  location: string;
+  status: string;
+  experience_years: number;
+  salary_min: number | null;
+  salary_max: number | null;
+}>({});
+>>>>>>> 39e1bd8020072e082829deb5bb48fa6cb13e5d0b:frontend/app/(recruiter)/jobs/[id]/page.tsx
   useEffect(() => {
     if (job) {
       editReset({
@@ -86,7 +107,10 @@ export default function RecruiterJobDetailPage() {
     onError: (err) => toast.error(getFriendlyError(err)),
   });
 
+<<<<<<< HEAD:frontend/app/recruiter/jobs/[id]/page.tsx
 
+=======
+>>>>>>> 39e1bd8020072e082829deb5bb48fa6cb13e5d0b:frontend/app/(recruiter)/jobs/[id]/page.tsx
 
   if (isLoading) return <div className="p-8 space-y-4"><div className="card p-6 skeleton h-48" /></div>;
   if (!job) return <div className="p-8 text-center text-text-muted">Job not found.</div>;
