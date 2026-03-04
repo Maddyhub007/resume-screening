@@ -23,8 +23,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel, db
 
+from app.models.mixins import SoftDeleteMixin
 
-class Candidate(BaseModel):
+
+class Candidate(BaseModel , SoftDeleteMixin):
     """
     Job-seeker profile.
 

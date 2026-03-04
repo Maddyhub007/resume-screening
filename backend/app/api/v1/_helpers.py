@@ -172,7 +172,7 @@ def serialize_resume(r) -> dict:
     return {
         "id":                    _safe(r, "id"),
         "candidate_id":          _safe(r, "candidate_id"),
-        "file_name":             _safe(r, "file_name"),
+        "filename":             _safe(r, "filename"),
         "file_size_bytes":       _safe(r, "file_size_bytes"),
         "content_type":          _safe(r, "content_type"),
         "parse_status":          parse_status.value if hasattr(parse_status, "value") else parse_status,

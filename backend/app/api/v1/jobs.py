@@ -311,7 +311,7 @@ def rank_candidates(job_id: str):
 
         svcs   = get_services()
         result = svcs.candidate_ranking.rank_for_job(
-            job=job,
+            job_id=job_id,
             page=page,
             per_page=limit,
             min_score=min_score,
@@ -352,7 +352,7 @@ def get_skill_gaps(job_id: str):
             return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
 
         svcs   = get_services()
-        gaps   = svcs.candidate_ranking.get_skill_gap_summary(job)
+        gaps   = svcs.candidate_ranking.get_skill_gap_summary(job_id)
         return success(
             data=gaps.__dict__ if hasattr(gaps, "__dict__") else gaps,
             message="Skill gap summary retrieved.",

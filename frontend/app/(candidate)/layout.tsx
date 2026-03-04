@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store/authStore";
+import { useLogout } from "@/lib/hooks/useLogout";
 import { useQuery } from "@tanstack/react-query";
 import { api, queryKeys } from "@/lib/api/client";
 import {
@@ -21,7 +22,8 @@ const NAV = [
 export default function CandidateLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { role, userId, userName, logout } = useAuthStore();
+  const { role, userId, userName } = useAuthStore();
+  const { logout: handleLogout } = useLogout();
 
   useEffect(() => {
     if (!userId || role !== "candidate") router.push("/login");
@@ -33,10 +35,8 @@ export default function CandidateLayout({ children }: { children: React.ReactNod
     refetchInterval: 30_000,
   });
 
-  const handleLogout = () => {
-    logout();
-    router.push("/login");
-  };
+
+
 
   if (!userId) return null;
 

@@ -198,7 +198,7 @@ class CandidateRankingService:
                 application_id=app.id,
                 candidate_id=candidate.id,
                 resume_id=app.resume_id or "",
-                name=f"{candidate.first_name} {candidate.last_name}",
+                name=candidate.full_name,
                 email=candidate.email,
                 stage=app.stage,
                 final_score=final_score,

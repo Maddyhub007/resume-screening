@@ -278,4 +278,4 @@ class TestCandidateResumes:
         assert r.status_code == 201
         body = r.get_json()
         assert body["data"]["id"] is not None
-        assert body["data"]["file_name"] == "resume.pdf"
+        assert body["data"]["filename"] == "resume.pdf"

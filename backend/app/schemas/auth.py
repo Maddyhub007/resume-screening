@@ -1,57 +1,57 @@
-
 """
 app/schemas/auth.py
 
 Marshmallow schemas for /api/v1/auth/* endpoints.
 
 Schemas:
-  LoginSchema             — POST /auth/login
   RegisterCandidateSchema — POST /auth/register/candidate
   RegisterRecruiterSchema — POST /auth/register/recruiter
-  MeQuerySchema           — GET  /auth/me (query params)
+  LoginSchema             — POST /auth/login
+  RefreshSchema           — POST /auth/refresh  (reads cookie, no body needed
+                             but body-based fallback is supported for testing)
+  ChangePasswordSchema    — POST /auth/change-password
 """
 
-from marshmallow import fields, validate
+import re
+
+from marshmallow import ValidationError, fields, validate, validates
 
 from app.schemas.base import BaseSchema
 
-_VALID_ROLES = ("candidate", "recruiter")
+_VALID_ROLES   = ("candidate", "recruiter")
+_MIN_PW_LEN    = 8
+_MAX_PW_LEN    = 128
+
+# Password strength: at least one upper, one lower, one digit, one special char
+_PW_PATTERN = re.compile(
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]).+$"
+)
 
 
-class LoginSchema(BaseSchema):
+def _validate_password_strength(value: str) -> None:
     """
-    Validates POST /api/v1/auth/login.
-
-    Fields:
-        email — case-insensitive; normalised to lowercase in the view layer
-        role  — 'candidate' | 'recruiter'
+    Shared password validator used by register and change-password schemas.
+    Raises ValidationError with specific guidance on failure.
     """
-
-    email = fields.Email(
-        required=True,
-        error_messages={
-            "required": "Email is required.",
-            "invalid":  "Enter a valid email address.",
-        },
-    )
-    role = fields.String(
-        required=True,
-        validate=validate.OneOf(_VALID_ROLES, error="role must be 'candidate' or 'recruiter'."),
-        error_messages={"required": "role is required."},
-    )
+    if len(value) < _MIN_PW_LEN:
+        raise ValidationError(f"Password must be at least {_MIN_PW_LEN} characters.")
+    if len(value) > _MAX_PW_LEN:
+        raise ValidationError(f"Password must be at most {_MAX_PW_LEN} characters.")
+    if not _PW_PATTERN.match(value):
+        raise ValidationError(
+            "Password must contain at least one uppercase letter, "
+            "one lowercase letter, one digit, and one special character."
+        )
 
 
 class RegisterCandidateSchema(BaseSchema):
     """
     Validates POST /api/v1/auth/register/candidate.
 
-    Required : full_name, email
+    Required : full_name, email, password
     Optional : phone, location, headline, open_to_work,
                preferred_roles, preferred_locations,
                linkedin_url, github_url, portfolio_url
-
-    Mirrors CreateCandidateSchema but lives in auth to keep the auth contract
-    self-contained and independently evolvable.
     """
 
     full_name = fields.String(
@@ -61,11 +61,16 @@ class RegisterCandidateSchema(BaseSchema):
     )
     email = fields.Email(
         required=True,
-        error_messages={
-            "required": "Email is required.",
-            "invalid":  "Enter a valid email address.",
-        },
+        error_messages={"required": "Email is required.", "invalid": "Enter a valid email address."},
     )
+    password = fields.String(
+        required=True,
+        load_only=True,             # never serialise back
+        validate=_validate_password_strength,
+        error_messages={"required": "Password is required."},
+    )
+
+    # Optional profile fields
     phone        = fields.String(load_default=None, allow_none=True, validate=validate.Length(max=30))
     location     = fields.String(load_default=None, allow_none=True, validate=validate.Length(max=200))
     headline     = fields.String(load_default=None, allow_none=True, validate=validate.Length(max=300))
@@ -81,7 +86,7 @@ class RegisterRecruiterSchema(BaseSchema):
     """
     Validates POST /api/v1/auth/register/recruiter.
 
-    Required : full_name, email, company_name
+    Required : full_name, email, password, company_name
     Optional : company_size, industry, phone, website_url, linkedin_url
     """
 
@@ -92,10 +97,13 @@ class RegisterRecruiterSchema(BaseSchema):
     )
     email = fields.Email(
         required=True,
-        error_messages={
-            "required": "Email is required.",
-            "invalid":  "Enter a valid email address.",
-        },
+        error_messages={"required": "Email is required.", "invalid": "Enter a valid email address."},
+    )
+    password = fields.String(
+        required=True,
+        load_only=True,
+        validate=_validate_password_strength,
+        error_messages={"required": "Password is required."},
     )
     company_name = fields.String(
         required=True,
@@ -116,21 +124,55 @@ class RegisterRecruiterSchema(BaseSchema):
     linkedin_url = fields.Url(load_default=None, allow_none=True)
 
 
-class MeQuerySchema(BaseSchema):
+class LoginSchema(BaseSchema):
     """
-    Validates GET /api/v1/auth/me query string.
+    Validates POST /api/v1/auth/login.
 
-    Both params are required — the frontend always has them when it has a
-    persisted Zustand session to validate.
+    Fields:
+        email    — normalised to lowercase in the view layer
+        password — load_only, never echoed back
+        role     — 'candidate' | 'recruiter'
     """
 
+    email = fields.Email(
+        required=True,
+        error_messages={"required": "Email is required.", "invalid": "Enter a valid email address."},
+    )
+    password = fields.String(
+        required=True,
+        load_only=True,
+        error_messages={"required": "Password is required."},
+    )
     role = fields.String(
         required=True,
         validate=validate.OneOf(_VALID_ROLES, error="role must be 'candidate' or 'recruiter'."),
-        error_messages={"required": "Query param 'role' is required."},
+        error_messages={"required": "role is required."},
     )
-    user_id = fields.String(
+
+
+class ChangePasswordSchema(BaseSchema):
+    """
+    Validates POST /api/v1/auth/change-password.
+
+    Requires the current password for re-authentication before allowing
+    a change — prevents session hijacking attacks.
+    """
+
+    current_password = fields.String(
         required=True,
-        validate=validate.Length(min=1),
-        error_messages={"required": "Query param 'user_id' is required."},
+        load_only=True,
+        error_messages={"required": "current_password is required."},
     )
+    new_password = fields.String(
+        required=True,
+        load_only=True,
+        validate=_validate_password_strength,
+        error_messages={"required": "new_password is required."},
+    )
+
+    @validates("new_password")
+    def new_differs_from_current(self, value: str) -> None:
+        """Prevent reuse of the current password."""
+        # Note: full equality check happens in the view layer (requires DB lookup).
+        # Here we only do lightweight format validation.
+        pass  # placeholder for additional cross-field rules if needed

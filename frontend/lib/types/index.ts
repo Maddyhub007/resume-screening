@@ -265,11 +265,13 @@ export interface SkillGapSingle {
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 export interface AuthState {
-  role: "candidate" | "recruiter" | null;
-  userId: string | null;
-  userName: string | null;
-  setAuth: (role: "candidate" | "recruiter", userId: string, userName: string) => void;
-  logout: () => void;
+  role:           "candidate" | "recruiter" | null;
+  userId:         string | null;
+  userName:       string | null;
+  accessToken:    string | null;
+  setAuth:        (role: "candidate" | "recruiter", userId: string, userName: string, accessToken: string) => void;
+  setAccessToken: (token: string) => void;
+  logout:         () => void;
 }
 
 // ─── Health ───────────────────────────────────────────────────────────────────
@@ -282,19 +284,30 @@ export interface HealthServices {
 
 // ─── Forms ────────────────────────────────────────────────────────────────────
 export interface CreateCandidateForm {
-  full_name: string;
-  email: string;
-  phone?: string;
-  location?: string;
-  headline?: string;
+  full_name:            string;
+  email:                string;
+  password:             string;
+  phone?:               string;
+  location?:            string;
+  headline?:            string;
+  open_to_work?:        boolean;
+  preferred_roles?:     string[];
+  preferred_locations?: string[];
+  linkedin_url?:        string;
+  github_url?:          string;
+  portfolio_url?:       string;
 }
 
 export interface CreateRecruiterForm {
-  full_name: string;
-  email: string;
-  company_name: string;
+  full_name:     string;
+  email:         string;
+  password:      string;
+  company_name:  string;
   company_size?: CompanySize;
-  industry?: string;
+  industry?:     string;
+  phone?:        string;
+  website_url?:  string;
+  linkedin_url?: string;
 }
 
 export interface CreateJobForm {

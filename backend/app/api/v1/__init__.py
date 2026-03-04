@@ -6,7 +6,7 @@ Version 1 API — blueprint registration.
 All v1 routes are mounted under /api/v1 in create_app().
 
 Resource layout:
-  /auth         — login, register, session check  ← NEW
+  /auth         — JWT login, register, refresh, logout  ← NEW
   /health       — liveness + readiness probes
   /candidates   — candidate profiles + resume upload
   /recruiters   — recruiter accounts + analytics

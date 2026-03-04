@@ -215,7 +215,6 @@ def job_recommendations():
         recs = svcs.job_recommendations.recommend(
             resume=resume,
             top_n=data["top_n"],
-            status_filter=data.get("status", "active"),
         )
 
         return success(

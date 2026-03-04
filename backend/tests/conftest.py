@@ -176,7 +176,7 @@ def sample_resume(db, app, sample_candidate):
     with app.app_context():
         r = Resume(
             candidate_id=sample_candidate.id,
-            file_name="jane_doe_resume.pdf",
+            filename="jane_doe_resume.pdf",
             file_path="/tmp/uploads/fake_resume.pdf",
             file_size_bytes=102400,
             content_type="application/pdf",

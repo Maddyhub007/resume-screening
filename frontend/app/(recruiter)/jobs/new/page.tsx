@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,14 +31,6 @@ export default function NewJobPage() {
   const queryClient = useQueryClient();
   const { userId } = useAuthStore();
 
-  if (!userId) {
-  return (
-    <div className="p-8 text-center text-text-muted">
-      Please login again.
-    </div>
-  );
-}
-
   const [requiredSkills, setRequiredSkills] = useState<string[]>([]);
   const [niceSkills, setNiceSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState("");
@@ -55,12 +48,8 @@ export default function NewJobPage() {
   });
 
   const mutation = useMutation({
-    mutationFn: (body: FormData) =>{
-        if (!userId) throw new Error("User not authenticated");
-
-      return api.createJob({ ...body, required_skills: requiredSkills, nice_to_have_skills: niceSkills, recruiter_id: userId! })
-    }
-    ,
+    mutationFn: (body: FormData) =>
+      api.createJob({ ...body, required_skills: requiredSkills, nice_to_have_skills: niceSkills, recruiter_id: userId! }),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.recruiterJobs(userId!) });
       // Per master prompt: offer "Enhance with AI" after create
@@ -71,7 +60,7 @@ export default function NewJobPage() {
       router.push(`/recruiter/jobs/${res.data.id}`);
     },
     onError: (err) => toast.error(getFriendlyError(err)),
-  });
+  }));
 
   const addSkill = (list: string[], setList: (v: string[]) => void, input: string, setInput: (v: string) => void) => {
     const trimmed = input.trim();

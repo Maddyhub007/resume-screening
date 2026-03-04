@@ -2,79 +2,111 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store/authStore";
-import { api, getFriendlyError } from "@/lib/api/client";
-import { Briefcase, User, ArrowRight, Loader2, Zap } from "lucide-react";
+import { api, ApiError, getFriendlyError, setClientToken } from "@/lib/api/client";
+import { Briefcase, User, ArrowRight, Loader2, Zap, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
+import { Candidate, Recruiter } from "@/lib/types";
 
 type Role = "candidate" | "recruiter";
-type Step = "role" | "email" | "register";
+type Step = "role" | "credentials" | "register";
 
 export default function LoginPage() {
-  const router = useRouter();
+  const router  = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
 
-  const [step, setStep] = useState<Step>("role");
-  const [role, setRole] = useState<Role | null>(null);
-  const [email, setEmail] = useState("");
+  const [step,    setStep]    = useState<Step>("role");
+  const [role,    setRole]    = useState<Role | null>(null);
   const [loading, setLoading] = useState(false);
-  const [notFound, setNotFound] = useState(false);
+
+  // Login form
+  const [email,       setEmail]       = useState("");
+  const [password,    setPassword]    = useState("");
+  const [showPass,    setShowPass]    = useState(false);
 
   // Register form
-  const [fullName, setFullName] = useState("");
+  const [fullName,    setFullName]    = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [showRegPass, setShowRegPass] = useState(false);
   const [companyName, setCompanyName] = useState("");
 
   const handleRoleSelect = (r: Role) => {
     setRole(r);
-    setStep("email");
+    setStep("credentials");
   };
 
-  const handleEmailSubmit = async (e: React.FormEvent) => {
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  // After a successful auth response, store everything and redirect
+  const handleAuthSuccess = (
+    accessToken: string,
+    role: "candidate" | "recruiter",
+    user: Candidate | Recruiter
+  ) => {
+    // 1. Store token in module-level memory (used by Axios interceptor)
+    setClientToken(accessToken);
+    // 2. Store identity in Zustand (persisted) + token in Zustand memory state
+    setAuth(role, user.id, user.full_name, accessToken);
+    // 3. Navigate to dashboard
+    router.push(role === "candidate" ? "/candidate/dashboard" : "/recruiter/dashboard");
+  };
+
+  // ── Login: POST /auth/login ────────────────────────────────────────────────
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !role) return;
+    if (!email || !password || !role) return;
     setLoading(true);
+
     try {
-      if (role === "candidate") {
-        const res = await api.listCandidates(1, 5, { search: email });
-        const found = res.data.find((c) => c.email.toLowerCase() === email.toLowerCase());
-        if (found) {
-          setAuth("candidate", found.id, found.full_name);
-          router.push("/candidate/dashboard");
-          return;
-        }
+      const res = await api.authLogin({
+        email:    email.toLowerCase().trim(),
+        password,
+        role,
+      });
+      const { access_token, user } = res.data;
+      toast.success("Welcome back!");
+      handleAuthSuccess(access_token, role, user as Candidate | Recruiter);
+
+    } catch (err) {
+      // INVALID_CREDENTIALS covers both "wrong password" and "unknown email"
+      // (backend is deliberately vague to prevent user enumeration)
+      if (err instanceof ApiError && err.code === "INVALID_CREDENTIALS") {
+        toast.error("Invalid email or password.");
+      } else if (err instanceof ApiError && err.code === "USER_NOT_FOUND") {
+        // Account doesn't exist yet — offer to register
+        setStep("register");
       } else {
-        const res = await api.listRecruiters(1, 5, { search: email });
-        const found = res.data.find((r) => r.email.toLowerCase() === email.toLowerCase());
-        if (found) {
-          setAuth("recruiter", found.id, found.full_name);
-          router.push("/recruiter/dashboard");
-          return;
-        }
+        toast.error(getFriendlyError(err));
       }
-      setNotFound(true);
-      setStep("register");
-    } catch {
-      toast.error("Could not reach server. Is the backend running?");
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Register: POST /auth/register/candidate|recruiter ─────────────────────
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!role || !fullName || !email) return;
+    if (!role || !fullName || !email || !regPassword) return;
     setLoading(true);
+
     try {
+      let res;
       if (role === "candidate") {
-        const res = await api.createCandidate({ full_name: fullName, email });
-        setAuth("candidate", res.data.id, res.data.full_name);
-        toast.success("Account created! Welcome aboard.");
-        router.push("/candidate/dashboard");
+        res = await api.authRegisterCandidate({
+          full_name: fullName,
+          email:     email.toLowerCase().trim(),
+          password:  regPassword,
+        });
       } else {
-        const res = await api.createRecruiter({ full_name: fullName, email, company_name: companyName });
-        setAuth("recruiter", res.data.id, res.data.full_name);
-        toast.success("Account created! Welcome aboard.");
-        router.push("/recruiter/dashboard");
+        res = await api.authRegisterRecruiter({
+          full_name:    fullName,
+          email:        email.toLowerCase().trim(),
+          password:     regPassword,
+          company_name: companyName,
+        });
       }
+      const { access_token, user } = res.data;
+      toast.success("Account created! Welcome aboard.");
+      handleAuthSuccess(access_token, role, user as Candidate | Recruiter);
+
     } catch (err) {
       toast.error(getFriendlyError(err));
     } finally {
@@ -104,7 +136,8 @@ export default function LoginPage() {
         </div>
 
         <div className="card p-8 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-          {/* Step: Role */}
+
+          {/* ── Step: Role ──────────────────────────────────────────────────── */}
           {step === "role" && (
             <>
               <h1 className="font-display text-2xl font-bold text-text-primary mb-2">Welcome back</h1>
@@ -126,17 +159,22 @@ export default function LoginPage() {
             </>
           )}
 
-          {/* Step: Email */}
-          {step === "email" && (
+          {/* ── Step: Email + Password (Login) ──────────────────────────────── */}
+          {step === "credentials" && (
             <>
-              <button onClick={() => setStep("role")} className="text-text-muted hover:text-text-secondary text-xs mb-6 flex items-center gap-1 transition-colors">
+              <button
+                onClick={() => setStep("role")}
+                className="text-text-muted hover:text-text-secondary text-xs mb-6 flex items-center gap-1 transition-colors"
+              >
                 ← Back
               </button>
               <h1 className="font-display text-2xl font-bold text-text-primary mb-2">
                 Sign in as {role === "candidate" ? "Candidate" : "Recruiter"}
               </h1>
-              <p className="text-text-secondary text-sm mb-8">Enter your email to continue</p>
-              <form onSubmit={handleEmailSubmit} className="space-y-4">
+              <p className="text-text-secondary text-sm mb-8">
+                Enter your credentials to continue
+              </p>
+              <form onSubmit={handleLoginSubmit} className="space-y-4">
                 <div>
                   <label className="label">Email address</label>
                   <input
@@ -149,40 +187,133 @@ export default function LoginPage() {
                     autoFocus
                   />
                 </div>
-                <button type="submit" disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2">
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" /></>}
+                <div>
+                  <label className="label">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPass ? "text" : "password"}
+                      className="input pr-10"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPass((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
+                    >
+                      {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="btn-primary w-full flex items-center justify-center gap-2"
+                >
+                  {loading
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <>Sign in <ArrowRight className="w-4 h-4" /></>
+                  }
                 </button>
+                <p className="text-center text-text-muted text-xs mt-2">
+                  No account?{" "}
+                  <button
+                    type="button"
+                    className="text-electric-400 hover:underline"
+                    onClick={() => setStep("register")}
+                  >
+                    Create one
+                  </button>
+                </p>
               </form>
             </>
           )}
 
-          {/* Step: Register */}
+          {/* ── Step: Register ───────────────────────────────────────────────── */}
           {step === "register" && (
             <>
-              <button onClick={() => { setStep("email"); setNotFound(false); }} className="text-text-muted hover:text-text-secondary text-xs mb-6 flex items-center gap-1 transition-colors">
-                ← Back
+              <button
+                onClick={() => setStep("credentials")}
+                className="text-text-muted hover:text-text-secondary text-xs mb-6 flex items-center gap-1 transition-colors"
+              >
+                ← Back to sign in
               </button>
-              <h1 className="font-display text-2xl font-bold text-text-primary mb-2">Create account</h1>
+              <h1 className="font-display text-2xl font-bold text-text-primary mb-2">
+                Create account
+              </h1>
               <p className="text-text-secondary text-sm mb-8">
-                No account found for <span className="text-electric-400">{email}</span>. Let&apos;s create one.
+                Sign up as a {role === "candidate" ? "Candidate" : "Recruiter"}
               </p>
               <form onSubmit={handleRegister} className="space-y-4">
                 <div>
                   <label className="label">Full name</label>
-                  <input className="input" placeholder="Jane Smith" value={fullName} onChange={(e) => setFullName(e.target.value)} required autoFocus />
+                  <input
+                    className="input"
+                    placeholder="Jane Smith"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                    autoFocus
+                  />
                 </div>
                 <div>
-                  <label className="label">Email</label>
-                  <input className="input" value={email} readOnly />
+                  <label className="label">Email address</label>
+                  <input
+                    type="email"
+                    className="input"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showRegPass ? "text" : "password"}
+                      className="input pr-10"
+                      placeholder="Min 8 chars, uppercase, number, symbol"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      required
+                      minLength={8}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPass((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
+                    >
+                      {showRegPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-text-muted text-xs mt-1">
+                    At least 8 characters with uppercase, number, and symbol
+                  </p>
                 </div>
                 {role === "recruiter" && (
                   <div>
                     <label className="label">Company name</label>
-                    <input className="input" placeholder="Acme Corp" value={companyName} onChange={(e) => setCompanyName(e.target.value)} required />
+                    <input
+                      className="input"
+                      placeholder="Acme Corp"
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                      required
+                    />
                   </div>
                 )}
-                <button type="submit" disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2">
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Create account <ArrowRight className="w-4 h-4" /></>}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="btn-primary w-full flex items-center justify-center gap-2"
+                >
+                  {loading
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <>Create account <ArrowRight className="w-4 h-4" /></>
+                  }
                 </button>
               </form>
             </>

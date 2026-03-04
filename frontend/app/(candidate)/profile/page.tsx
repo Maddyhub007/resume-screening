@@ -71,7 +71,7 @@ function TagInput({
 
 export default function ProfilePage() {
   const queryClient = useQueryClient();
-  const { userId, setAuth } = useAuthStore();
+  const { userId, setAuth, accessToken } = useAuthStore();
 
   const [preferredRoles, setPreferredRoles] = useState<string[]>([]);
   const [preferredLocations, setPreferredLocations] = useState<string[]>([]);
@@ -109,7 +109,7 @@ export default function ProfilePage() {
       api.updateCandidate(userId!, body),
     onSuccess: (res) => {
       toast.success("Profile updated!");
-      setAuth("candidate", userId!, res.data.full_name);
+      setAuth("candidate", userId!, res.data.full_name, accessToken ?? "");
       queryClient.invalidateQueries({ queryKey: queryKeys.candidate(userId!) });
     },
     onError: (err) => toast.error(getFriendlyError(err)),

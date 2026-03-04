@@ -25,7 +25,7 @@ Usage (called once in create_app):
 import logging
 import time
 import uuid
-
+from app.core.database import db
 from flask import Flask, g, request
 
 from app.core.logging import set_request_id
@@ -88,17 +88,21 @@ def register_middleware(app: Flask) -> None:
         )
         return response
 
-    @app.teardown_appcontext
-    def _teardown(exception=None) -> None:
+    @app.teardown_request
+    def _shutdown_session(exception=None) -> None:
         """
-        Runs when the application context is torn down.
-        Roll back any open SQLAlchemy session on exception.
+        Unit-of-work pattern:
+        - commit on success
+        - rollback on error
+        - always remove session
         """
-        if exception:
-            # pylint: disable=import-outside-toplevel
-            from app.core.database import db
+        try:
+            if exception:
+                db.session.rollback()
+            else:
+                db.session.commit()
+        except Exception:
             db.session.rollback()
-            logger.error(
-                "Session rolled back due to unhandled exception",
-                extra={"exception": str(exception)},
-            )
+            raise
+        finally:
+            db.session.remove()
