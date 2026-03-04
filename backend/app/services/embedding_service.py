@@ -47,7 +47,8 @@ class EmbeddingService:
         self.cache_dir = cache_dir
         self._model: Any = None
         self._model_lock = threading.Lock()
-        self.available = False
+        self.available: bool | None = None
+        self._load_attempted = False
 
     # ── Singleton factory ─────────────────────────────────────────────────────
 
@@ -67,11 +68,14 @@ class EmbeddingService:
     def _ensure_loaded(self) -> bool:
         """Load the model on first call. Thread-safe. Returns True if available."""
         if self._model is not None:
+            self.available = True
             return True
         with self._model_lock:
             if self._model is not None:
+                self.available = True
                 return True
             try:
+                self._load_attempted = True
                 from sentence_transformers import SentenceTransformer
                 logger.info("Loading embedding model: %s", self.model_name)
                 self._model = SentenceTransformer(
@@ -108,8 +112,8 @@ class EmbeddingService:
         Encode text into embedding vector(s).
         """
 
-        # 🔴 HARD FAIL if explicitly unavailable
-        if self.available is False and self._model is None:
+        # 🔴 HARD FAIL only after we've already tried loading and know it failed
+        if self._load_attempted and self.available is False and self._model is None:
             raise RuntimeError(
                 "Embedding model is unavailable. "
                 "Check logs for the root cause."

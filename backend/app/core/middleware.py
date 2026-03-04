@@ -89,7 +89,33 @@ def register_middleware(app: Flask) -> None:
         return response
 
     @app.teardown_request
+<<<<<<< HEAD
     def _shutdown_session(exception=None) -> None:
+=======
+    def _teardown_request(exception=None) -> None:
+        """
+        Finalise DB transaction for the request.
+
+        - Commit on success for mutating methods.
+        - Roll back on exceptions or failed commits.
+        """
+        # pylint: disable=import-outside-toplevel
+        from app.core.database import db
+
+        if exception:
+            db.session.rollback()
+            return
+
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                logger.error("Session commit failed; rolled back.", exc_info=True)
+
+    @app.teardown_appcontext
+    def _teardown(exception=None) -> None:
+>>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
         """
         Unit-of-work pattern:
         - commit on success
@@ -103,6 +129,13 @@ def register_middleware(app: Flask) -> None:
                 db.session.commit()
         except Exception:
             db.session.rollback()
+<<<<<<< HEAD
             raise
         finally:
             db.session.remove()
+=======
+            logger.error(
+                "Session rolled back due to unhandled exception",
+                extra={"exception": str(exception)},
+            )
+>>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049

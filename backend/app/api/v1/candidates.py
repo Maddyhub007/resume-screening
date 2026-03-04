@@ -333,6 +333,7 @@ def upload_resume(candidate_id: str):
 
         if parse_result.success:
             from app.models.enums import ParseStatus
+<<<<<<< HEAD
             resume.parse_status           = ParseStatus.SUCCESS
             resume.skills_list            = parse_result.skills
             resume.education_list         = parse_result.education
@@ -343,6 +344,18 @@ def upload_resume(candidate_id: str):
             resume.raw_text               = parse_result.raw_text
             resume.total_experience_years = parse_result.experience_years
             resume.skill_count            = len(parse_result.skills)
+=======
+            resume.parse_status             = ParseStatus.SUCCESS
+            resume.skills_list              = parse_result.skills
+            resume.education_list           = parse_result.education
+            resume.experience_list          = parse_result.experience
+            resume.certifications_list      = parse_result.certifications
+            resume.projects_list            = parse_result.projects
+            resume.summary_text             = parse_result.summary_text
+            resume.raw_text                 = parse_result.raw_text
+            resume.total_experience_years   = parse_result.total_experience_years
+            resume.skill_count              = len(parse_result.skills)
+>>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
             repo.save(resume)
         else:
             from app.models.enums import ParseStatus

@@ -1,6 +1,10 @@
 import axios, { AxiosInstance } from "axios";
 import {
+<<<<<<< HEAD
   ApiResponse, Candidate, Recruiter, Job, Resume,
+=======
+  ApiResponse, PaginationMeta, Candidate, Recruiter, Job, Resume, AuthPayload,
+>>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
   Application, AtsScore, ScoreMatchResult, RankedCandidate, JobRecommendation,
   JobEnhancement, RecruiterDashboard, PipelineData,
   CreateCandidateForm, CreateRecruiterForm, CreateJobForm, StageUpdateForm,
@@ -38,6 +42,7 @@ export class ApiError extends Error {
 
 // ─── Friendly error messages ──────────────────────────────────────────────────
 const ERROR_MESSAGES: Record<string, string> = {
+<<<<<<< HEAD
   // Auth
   INVALID_CREDENTIALS:       "Invalid email or password.",
   MISSING_TOKEN:             "Your session has expired. Please log in again.",
@@ -53,6 +58,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   // Application
   DUPLICATE_APPLICATION:     "You have already applied to this job.",
   JOB_NOT_ACTIVE:            "This job is no longer accepting applications.",
+=======
+  CANDIDATE_EMAIL_CONFLICT: "This email is already registered.",
+  RECRUITER_EMAIL_CONFLICT: "This email is already registered.",
+  USER_NOT_FOUND: "No account found for this email.",
+  DUPLICATE_APPLICATION: "You have already applied to this job.",
+  JOB_NOT_ACTIVE: "This job is no longer accepting applications.",
+>>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
   RESUME_OWNERSHIP_MISMATCH: "Please select your own resume.",
   CANNOT_WITHDRAW:           "Cannot withdraw a finalized application.",
   // File
@@ -253,6 +265,21 @@ async function del<T>(url: string): Promise<ApiResponse<T>> {
 
 // ─── API Functions ────────────────────────────────────────────────────────────
 export const api = {
+<<<<<<< HEAD
+=======
+  // Auth
+  login: (body: { email: string; role: "candidate" | "recruiter" }) =>
+    post<AuthPayload>("/auth/login", body),
+  registerCandidate: (body: CreateCandidateForm) =>
+    post<AuthPayload>("/auth/register/candidate", body),
+  registerRecruiter: (body: CreateRecruiterForm) =>
+    post<AuthPayload>("/auth/register/recruiter", body),
+
+  // Health
+  getHealth: () => get<{ status: string; uptime_seconds: number }>("/health"),
+  getHealthReady: () => get<{ status: string }>("/health/ready"),
+  getHealthServices: () => get<{ services: { database: { available: boolean; description: string }; embedding: { available: boolean; description: string }; groq: { available: boolean; description: string } }; all_optional_services_available: boolean }>("/health/services"),
+>>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   // POST /auth/login  Body: { email, password, role }
