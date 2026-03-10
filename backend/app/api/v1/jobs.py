@@ -20,6 +20,8 @@ import uuid
 
 from flask import Blueprint, request
 
+from app.core.security import require_auth
+
 from app.core.responses import created, error, no_content, success, success_list
 from app.schemas.job import CreateJobSchema, JobQuerySchema, UpdateJobSchema
 
@@ -39,7 +41,7 @@ jobs_bp = Blueprint("jobs", __name__)
 # List + Create
 # ─────────────────────────────────────────────────────────────────────────────
 
-@jobs_bp.get("/")
+@jobs_bp.get("")
 def list_jobs():
     """
     GET /api/v1/jobs/
@@ -92,7 +94,7 @@ def list_jobs():
         return error("Failed to retrieve jobs.", code="INTERNAL_ERROR", status=500)
 
 
-@jobs_bp.post("/")
+@jobs_bp.post("")
 def create_job():
     """
     POST /api/v1/jobs/
@@ -118,8 +120,10 @@ def create_job():
         job.description         = data["description"]
         job.experience_years    = data.get("experience_years", 0.0)
         job.location            = data.get("location", "Remote")
-        job.job_type            = data.get("job_type", JobType.FULL_TIME.value)
-        job.status              = data.get("status", JobStatus.ACTIVE.value)
+        raw_type = data.get("job_type", JobType.FULL_TIME.value)
+        job.job_type = raw_type.value if hasattr(raw_type, "value") else raw_type
+        raw_status = data.get("status", JobStatus.ACTIVE.value)
+        job.status = raw_status.value if hasattr(raw_status, "value") else raw_status
         job.salary_min          = data.get("salary_min")
         job.salary_max          = data.get("salary_max")
         job.salary_currency     = data.get("salary_currency", "USD")
@@ -362,13 +366,16 @@ def get_skill_gaps(job_id: str):
         return error("Failed to retrieve skill gaps.", code="INTERNAL_ERROR", status=500)
 
 
+# jobs.py — replace lines ~365–390
+
 @jobs_bp.get("/<job_id>/performance")
+@require_auth("recruiter")                      # ← add auth guard too
 def get_job_performance(job_id: str):
     """
     GET /api/v1/jobs/<job_id>/performance
-
     Returns applicant_count, avg_score, stage_breakdown, top_skills_matched.
     """
+    from flask import g
     try:
         from app.repositories import JobRepository
         job = JobRepository().get_by_id(job_id)
@@ -376,10 +383,17 @@ def get_job_performance(job_id: str):
         if not job or getattr(job, "is_deleted", False):
             return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
 
-        svcs  = get_services()
-        perf  = svcs.recruiter_analytics.get_job_performance(job_id)
+        svcs = get_services()
+        perf = svcs.recruiter_analytics.get_job_performance(
+            recruiter_id=g.user_id,             # ← pass the authenticated recruiter
+            job_id=job_id,
+        )
+
+        if not perf:                            # service returns {} if ownership fails
+            return error("Access denied or job not found.", code="FORBIDDEN", status=403)
+
         return success(
-            data=perf.__dict__ if hasattr(perf, "__dict__") else perf,
+            data=perf,
             message="Job performance metrics retrieved.",
         )
     except Exception:

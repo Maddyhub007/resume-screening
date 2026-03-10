@@ -155,7 +155,7 @@ export default function RecruiterDashboard() {
             <div className="h-48 flex items-center justify-center text-text-muted text-sm">No scores yet.</div>
           ) : (
             <div className="flex items-center gap-6">
-              <ResponsiveContainer width={170} height={180}>
+              <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
                   <Pie data={scoreDistData} cx="50%" cy="50%" innerRadius={50} outerRadius={76} dataKey="value" paddingAngle={3}>
                     {scoreDistData.map((entry, i) => (
@@ -198,7 +198,7 @@ export default function RecruiterDashboard() {
           ) : (
             <div className="space-y-2">
               {jobs.map((job) => (
-                <Link key={job.id} href={`/recruiter/jobs/${job.id}`} className="card-hover p-4 flex items-center gap-4 group block">
+                <Link key={job.id} href={`/recruiter/jobs/${job.id}`} className="card-hover p-4 flex items-center gap-4 group">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-text-primary group-hover:text-electric-400 transition-colors truncate">{job.title}</div>
                     <div className="text-text-muted text-xs mt-0.5">{job.location} · {job.job_type} · {formatRelativeDate(job.created_at)}</div>

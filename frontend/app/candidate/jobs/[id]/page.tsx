@@ -166,7 +166,7 @@ export default function JobDetailPage() {
                   <SkillBadge
                     key={i}
                     skill={s}
-                    variant={preview ? (preview.matched_skills.includes(s) ? "matched" : "missing") : "default"}
+                    variant={preview?.matched_skills?.includes(s) ? "matched" : preview ? "missing" : "default"}
                   />
                 ))}
               </div>

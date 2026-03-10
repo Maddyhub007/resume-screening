@@ -40,7 +40,7 @@ class JobRepository(BaseRepository[Job]):
             db.session.query(Job)
             .filter(
                 Job.is_deleted == False,       # noqa: E712
-                Job.status == JobStatus.ACTIVE,
+                Job.status == JobStatus.ACTIVE.value,
             )
         )
 
@@ -75,29 +75,55 @@ class JobRepository(BaseRepository[Job]):
         return items, total
 
     def list_by_recruiter(
-        self,
-        recruiter_id: str,
-        status: str | None = None,
-        page: int = 1,
-        limit: int = 50,
-    ) -> tuple[list[Job], int]:
-        """Fetch recruiter's jobs, optionally filtered by status."""
+            self,
+            recruiter_id: str,
+            status: str | None = None,
+            page: int | None = None,
+            limit: int | None = None,
+            include_closed: bool = False,
+            with_count: bool = True,
+        ):
+        """
+        Fetch jobs for a recruiter.
+
+        Supports:
+        - optional status filtering
+        - optional pagination
+        - include_closed for analytics
+        - returning list only (service usage)
+        """
+
         query = (
             db.session.query(Job)
-            .filter(Job.recruiter_id == recruiter_id, Job.is_deleted == False)  # noqa: E712
+            .filter(
+                Job.recruiter_id == recruiter_id,
+                Job.is_deleted == False,  # noqa: E712
+            )
         )
+
+        # If not including closed jobs, default to ACTIVE only
+        if not include_closed and not status:
+            query = query.filter(Job.status == JobStatus.ACTIVE.value)
+
         if status:
             query = query.filter(Job.status == status)
 
-        total = query.count()
-        items = (
-            query
-            .order_by(Job.created_at.desc())
-            .offset((page - 1) * limit)
-            .limit(limit)
-            .all()
-        )
-        return items, total
+        query = query.order_by(Job.created_at.desc())
+
+        # ── Pagination branch (API usage) ─────────────────────────────
+        if page is not None and limit is not None:
+            total = query.count()
+            items = (
+                query
+                .offset((page - 1) * limit)
+                .limit(limit)
+                .all()
+            )
+            return (items, total) if with_count else items
+
+        # ── Non-paginated branch (Analytics usage) ─────────────────────
+        return query.all()
+
 
     def get_by_ids(self, job_ids: list[str]) -> list[Job]:
         """Fetch multiple jobs by a list of IDs."""
@@ -134,7 +160,7 @@ class JobRepository(BaseRepository[Job]):
                 Job.recruiter_id == recruiter_id,
                 Job.company.ilike(company.strip()),
                 Job.title.ilike(pattern),
-                Job.status.in_([JobStatus.ACTIVE, JobStatus.PAUSED]),
+                Job.status.in_([JobStatus.ACTIVE.value, JobStatus.PAUSED.value]),
                 Job.is_deleted == False,  # noqa: E712
             )
             .all()

@@ -117,7 +117,7 @@ class CandidateRankingService:
             }
         """
         try:
-            top_scores = self._ats_repo.get_top_for_job(job_id=job_id, limit=100)
+            top_scores = self._ats_repo.get_top_for_job(job_id=job_id, top_n=10)
             if not top_scores:
                 return {}
 
@@ -154,19 +154,20 @@ class CandidateRankingService:
         per_page: int,
     ) -> RankingResult:
         # ── 1. Load applications ──────────────────────────────────────────────
-        applications_page = self._app_repo.list_by_job(
+        applications, _ = self._app_repo.list_by_job(
             job_id=job_id,
             stage=stage_filter,
             page=1,
-            per_page=500,  # Load all then sort by score
+            limit=500,  # Load all then sort by score
         )
-        applications = applications_page.get("items", [])
         if not applications:
             return RankingResult(page=page, per_page=per_page)
 
         # ── 2. Load ATS scores ─────────────────────────────────────────────────
         scores_by_resume: dict[str, object] = {}
-        for score in self._ats_repo.list_by_job(job_id=job_id, limit=500):
+        scores, _ = self._ats_repo.list_by_job(job_id=job_id, page=1, limit=500)
+
+        for score in scores:
             scores_by_resume[score.resume_id] = score
 
         # ── 3. Load candidate data ────────────────────────────────────────────

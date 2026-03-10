@@ -3,6 +3,10 @@ app/core/database.py
 
 SQLAlchemy database initialisation and base model class.
 
+JWT Auth changes (Phase 7):
+  - _import_models() includes refresh_token so create_all() / Alembic
+    autogenerate sees the RefreshToken table.
+
 Design:
   - db is the single Flask-SQLAlchemy extension instance.
   - BaseModel adds audit columns (id, created_at, updated_at) and
@@ -21,7 +25,7 @@ Usage:
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, TypeVar
+from typing import Any
 
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
@@ -33,11 +37,16 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 # Declarative base with SQLAlchemy 2.x style
 # ─────────────────────────────────────────────────────────────────────────────
 
+class _Base(DeclarativeBase):
+    """Internal declarative base — not imported directly outside this module."""
+    pass
+
 
 # Single db instance — shared across all models
-db = SQLAlchemy()
+db = SQLAlchemy(model_class=_Base)
 
 # Generic TypeVar for repository return types
+from typing import TypeVar
 ModelT = TypeVar("ModelT", bound="BaseModel")
 
 
@@ -61,7 +70,7 @@ class BaseModel(db.Model):  # type: ignore[name-defined]
 
     __abstract__ = True
 
-    # ── Primary key ─────────────────────────────────────────────────────────
+    # ── Primary key ──────────────────────────────────────────────────────────
     id: Mapped[str] = mapped_column(
         String(36),
         primary_key=True,
@@ -69,7 +78,7 @@ class BaseModel(db.Model):  # type: ignore[name-defined]
         nullable=False,
     )
 
-    # ── Audit timestamps ────────────────────────────────────────────────────
+    # ── Audit timestamps ─────────────────────────────────────────────────────
     created_at: Mapped[datetime] = mapped_column(
         db.DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -82,7 +91,7 @@ class BaseModel(db.Model):  # type: ignore[name-defined]
         nullable=False,
     )
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     def save(self) -> "BaseModel":
         """
@@ -153,7 +162,8 @@ def init_db(app: Flask) -> None:
 
 def _import_models() -> None:
     """
-    Trigger model imports so SQLAlchemy discovers them before create_all().
+    Trigger model imports so SQLAlchemy discovers them before create_all()
+    and Alembic autogenerate can detect all tables.
 
     This must stay in sync as new models are added.
     Import order doesn't matter — SQLAlchemy resolves FK dependencies.
@@ -166,4 +176,5 @@ def _import_models() -> None:
         resume,
         application,
         ats_score,
+        refresh_token,   # ← Phase 7: JWT refresh token ledger
     )

@@ -82,7 +82,7 @@ class RecruiterAnalyticsService:
             {stage_name: count, ...}
         """
         try:
-            jobs = self._job_repo.list_by_recruiter(recruiter_id, include_closed=True)
+            jobs = self._job_repo.list_by_recruiter(recruiter_id, include_closed=True , with_count=False, page=None, limit=None,)
             if not jobs:
                 return {}
 
@@ -115,7 +115,7 @@ class RecruiterAnalyticsService:
                 return {}
 
             stage_counts = self._app_repo.count_by_stage(job_id=job_id)
-            top_scores   = self._ats_repo.get_top_for_job(job_id=job_id, limit=50)
+            top_scores   = self._ats_repo.get_top_for_job(job_id=job_id, top_n=50)
 
             avg_score = 0.0
             if top_scores:
@@ -140,7 +140,7 @@ class RecruiterAnalyticsService:
         from collections import Counter
 
         # ── Jobs ──────────────────────────────────────────────────────────────
-        all_jobs  = self._job_repo.list_by_recruiter(recruiter_id, include_closed=True)
+        all_jobs  = self._job_repo.list_by_recruiter(recruiter_id, include_closed=True , with_count=False, page=None, limit=None,)
         active_jobs = [j for j in all_jobs if j.status == JobStatus.ACTIVE]
 
         # ── Applications ──────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ class RecruiterAnalyticsService:
         all_scores = []
         score_dist = {"excellent": 0, "good": 0, "fair": 0, "weak": 0}
         for job in all_jobs:
-            job_scores = self._ats_repo.list_by_job(job_id=job.id, limit=200)
+            job_scores, _ = self._ats_repo.list_by_job(job_id=job.id, page=1 ,limit=200)
             for s in job_scores:
                 all_scores.append(s.final_score)
                 label = s.score_label

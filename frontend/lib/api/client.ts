@@ -1,14 +1,10 @@
 import axios, { AxiosInstance } from "axios";
 import {
-<<<<<<< HEAD
   ApiResponse, Candidate, Recruiter, Job, Resume,
-=======
-  ApiResponse, PaginationMeta, Candidate, Recruiter, Job, Resume, AuthPayload,
->>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
   Application, AtsScore, ScoreMatchResult, RankedCandidate, JobRecommendation,
   JobEnhancement, RecruiterDashboard, PipelineData,
   CreateCandidateForm, CreateRecruiterForm, CreateJobForm, StageUpdateForm,
-  SkillGapSingle,
+  SkillGapSingle, BuilderTemplate, BuilderContent, BuilderAtsPreview, BuildResult, ResumeDraft, SaveDraftResult,
 } from "@/lib/types";
 
 // ─── Auth response shape ───────────────────────────────────────────────────────
@@ -40,12 +36,24 @@ export class ApiError extends Error {
   }
 }
 
+const AUTH_EXPIRY_CODES = new Set([
+  "REFRESH_EXPIRED",
+  "MISSING_TOKEN",   // refresh cookie missing
+  "TOKEN_REUSED",    // replay detected
+  "INVALID_TOKEN",   // generic frontend variant
+  "TOKEN_INVALID",   // backend variant used by refresh endpoint
+]);
+
 // ─── Friendly error messages ──────────────────────────────────────────────────
 const ERROR_MESSAGES: Record<string, string> = {
-<<<<<<< HEAD
   // Auth
   INVALID_CREDENTIALS:       "Invalid email or password.",
   MISSING_TOKEN:             "Your session has expired. Please log in again.",
+  // This message is shown when /auth/refresh returns MISSING_TOKEN (no refresh cookie).
+  // If a protected endpoint returns MISSING_TOKEN (missing Bearer header),
+  // the Axios interceptor silently refreshes the token and this message
+  // is never shown to the user.
+
   TOKEN_EXPIRED:             "Your session has expired. Please log in again.",
   REFRESH_EXPIRED:           "Your session has expired. Please log in again.",
   INVALID_TOKEN:             "Authentication error. Please log in again.",
@@ -58,13 +66,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   // Application
   DUPLICATE_APPLICATION:     "You have already applied to this job.",
   JOB_NOT_ACTIVE:            "This job is no longer accepting applications.",
-=======
-  CANDIDATE_EMAIL_CONFLICT: "This email is already registered.",
-  RECRUITER_EMAIL_CONFLICT: "This email is already registered.",
-  USER_NOT_FOUND: "No account found for this email.",
-  DUPLICATE_APPLICATION: "You have already applied to this job.",
-  JOB_NOT_ACTIVE: "This job is no longer accepting applications.",
->>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
   RESUME_OWNERSHIP_MISMATCH: "Please select your own resume.",
   CANNOT_WITHDRAW:           "Cannot withdraw a finalized application.",
   // File
@@ -121,9 +122,23 @@ export const queryKeys = {
   analyticsScoreDist:        (recruiterId: string) => ["analytics", recruiterId, "score-dist"] as const,
   analyticsSkillsDemand:     (recruiterId: string) => ["analytics", recruiterId, "skills"] as const,
   analyticsTopJobs:          (recruiterId: string) => ["analytics", recruiterId, "top-jobs"] as const,
+  builderTemplates: () => ["builder", "templates"] as const,
+  builderJobs:      (p?: number, s?: string) => ["builder", "jobs", p, s] as const,
+  builderDrafts:    (status?: string, p?: number) => ["builder", "drafts", status, p] as const,
+  builderDraft:     (id: string) => ["builder", "draft", id] as const,
 };
 
 // ─── Token storage (module-level memory — survives re-renders, cleared on reload) ─
+
+// ⚠️  MODULE-LEVEL STATE — CLIENT SIDE ONLY
+// _accessToken and _refreshing are intentionally module-scoped for performance
+// (avoids React context overhead for every request).
+// This file MUST remain a client-only module ("use client" or imported only
+// from client components). If ever used server-side, these vars would be
+// shared across all user requests — a serious security leak.
+// See: https://nextjs.org/docs/app/building-your-application/rendering/composition-patterns
+
+
 let _accessToken: string | null = null;
 
 export function setClientToken(token: string | null) {
@@ -136,9 +151,16 @@ export function getClientToken(): string | null {
 // ─── Axios instance ───────────────────────────────────────────────────────────
 let _refreshing: Promise<string | null> | null = null;
 
+export function resetClientState() {
+  _accessToken = null;
+  _refreshing  = null;
+}
+
 const createApiClient = (): AxiosInstance => {
   const client = axios.create({
-    baseURL:          `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000"}/api/v1`,
+    baseURL: process.env.NEXT_PUBLIC_API_URL
+      ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1`
+      : "/api/v1",
     headers:          { "Content-Type": "application/json" },
     timeout:          120_000,
     withCredentials:  true,   // ← REQUIRED: sends HttpOnly refresh_token cookie
@@ -178,36 +200,57 @@ const createApiClient = (): AxiosInstance => {
 
       // ── Silent refresh on 401 TOKEN_EXPIRED ────────────────────────────────
       // Only attempt once per failed request. Don't retry refresh calls themselves.
-      const isAuthEndpoint = err.config?.url?.includes("/auth/");
+      const isRefreshEndpoint = err.config?.url?.includes("/auth/refresh");
+
+      // MISSING_TOKEN has two meanings depending on endpoint:
+      //
+      // 1. Protected endpoints → access token missing in Authorization header
+      //    Safe to attempt silent refresh.
+      //
+      // 2. /auth/refresh endpoint → refresh cookie missing
+      //    Means session is fully expired → must logout.
+      //
+      // Because we exclude /auth/* endpoints below, this block only runs
+      // for case (1), so silent refresh is safe.
       if (
         status === 401 &&
         (code === "TOKEN_EXPIRED" || code === "MISSING_TOKEN") &&
-        !isAuthEndpoint &&
+        !isRefreshEndpoint &&
         !err.config?._retried
       ) {
         // Deduplicate concurrent refresh calls
         if (!_refreshing) {
           _refreshing = (async () => {
-            try {
-              const res = await client.post<ApiResponse<AuthPayload>>(
-                "/auth/refresh",
-                {},
-                { _retried: true } as never
-              );
-              const newToken = res.data.data.access_token;
-              _accessToken = newToken;
-              return newToken;
-            } catch {
-              _accessToken = null;
-              // Redirect to login — session is fully expired
-              if (typeof window !== "undefined") {
-                window.location.href = "/login";
+              try {
+                const res = await client.post<ApiResponse<AuthPayload>>(
+                  "/auth/refresh",
+                  {},
+                  { withCredentials: true, headers: { "Content-Type": "application/json" } }
+                );
+                const newToken = res.data.data.access_token;
+                _accessToken = newToken;
+                return newToken;
+              } catch (refreshErr) {
+                _accessToken = null;
+                
+                // Only redirect on definitive session expiry — not on race-condition 401s.
+                // If AuthProvider is already handling the redirect, don't double-redirect.
+                const code = refreshErr instanceof ApiError ? refreshErr.code : "";
+                const hardLogoutCodes = new Set([
+                  "REFRESH_EXPIRED", "TOKEN_REUSED", "TOKEN_INVALID", "INVALID_TOKEN"
+                ]);
+                
+                if (hardLogoutCodes.has(code) && typeof window !== "undefined") {
+                  window.location.href = "/login";
+                }
+                // MISSING_TOKEN on a race condition — don't redirect, just return null.
+                // The original request will fail and AuthProvider handles the UI state.
+                
+                return null;
+              } finally {
+                _refreshing = null;
               }
-              return null;
-            } finally {
-              _refreshing = null;
-            }
-          })();
+            })();
         }
 
         const newToken = await _refreshing;
@@ -265,21 +308,6 @@ async function del<T>(url: string): Promise<ApiResponse<T>> {
 
 // ─── API Functions ────────────────────────────────────────────────────────────
 export const api = {
-<<<<<<< HEAD
-=======
-  // Auth
-  login: (body: { email: string; role: "candidate" | "recruiter" }) =>
-    post<AuthPayload>("/auth/login", body),
-  registerCandidate: (body: CreateCandidateForm) =>
-    post<AuthPayload>("/auth/register/candidate", body),
-  registerRecruiter: (body: CreateRecruiterForm) =>
-    post<AuthPayload>("/auth/register/recruiter", body),
-
-  // Health
-  getHealth: () => get<{ status: string; uptime_seconds: number }>("/health"),
-  getHealthReady: () => get<{ status: string }>("/health/ready"),
-  getHealthServices: () => get<{ services: { database: { available: boolean; description: string }; embedding: { available: boolean; description: string }; groq: { available: boolean; description: string } }; all_optional_services_available: boolean }>("/health/services"),
->>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   // POST /auth/login  Body: { email, password, role }
@@ -462,4 +490,48 @@ export const api = {
     get<{ jobs: { job_id: string; title: string; applicant_count: number; avg_score: number }[] }>(
       "/analytics/top-jobs", { recruiter_id: recruiterId, top_n: topN }
     ),
+
+    // ── Resume Builder ──────────────────────────────────────────────────────────
+  // GET /resume-builder/templates  (no auth)
+  listBuilderTemplates: () =>
+    get<BuilderTemplate[]>("/resume-builder/templates"),
+
+  // GET /resume-builder/jobs?search=&location=&job_type=&page=&limit=
+  listBuilderJobs: (params?: Record<string, unknown>) =>
+    get<Job[]>("/resume-builder/jobs", params),
+
+  // POST /resume-builder/generate
+  // Body: { job_id, user_prompt?, template_id? }
+  generateResume: (body: {
+    job_id: string;
+    user_prompt?: string;
+    template_id?: string;
+  }) => post<BuildResult>("/resume-builder/generate", body),
+
+  // POST /resume-builder/refine  Body: { draft_id }
+  refineResume: (body: { draft_id: string }) =>
+    post<BuildResult>("/resume-builder/refine", body),
+
+  // POST /resume-builder/predict-score  Body: { job_id, content }
+  // Read-only scoring — no draft row modified
+  predictScore: (body: { job_id: string; content: BuilderContent }) =>
+    post<BuilderAtsPreview>("/resume-builder/predict-score", body),
+
+  // POST /resume-builder/save-draft  Body: { draft_id, content? }
+  saveDraft: (body: { draft_id: string; content?: BuilderContent }) =>
+    post<SaveDraftResult>("/resume-builder/save-draft", body),
+
+  // GET /resume-builder/drafts?status=&page=&limit=
+  listBuilderDrafts: (params?: Record<string, unknown>) =>
+    get<ResumeDraft[]>("/resume-builder/drafts", params),
+
+  // GET /resume-builder/drafts/<id>
+  getBuilderDraft: (draftId: string) =>
+    get<ResumeDraft>(`/resume-builder/drafts/${draftId}`),
+
+  // POST /resume-builder/drafts/<id>/feedback
+  submitDraftFeedback: (
+    draftId: string,
+    body: { shortlisted: boolean; interview_stage?: string; hired?: boolean }
+  ) => post<{ message: string }>(`/resume-builder/drafts/${draftId}/feedback`, body),
 };

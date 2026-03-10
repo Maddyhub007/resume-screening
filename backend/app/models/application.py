@@ -158,6 +158,12 @@ class Application(BaseModel):
             extra={"application_id": self.id, "from": current.value, "to": target.value},
         )
 
+
+    @property
+    def applied_at(self):
+        """Alias for created_at — the moment the application was submitted."""
+        return self.created_at
+
     @property
     def is_terminal(self) -> bool:
         """True when the application is in a terminal stage (no further transitions)."""

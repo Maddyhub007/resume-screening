@@ -1,19 +1,18 @@
-
 """
 app/models/recruiter.py
 
 Recruiter profile model.
 
-Changes from Phase 1:
-  - CompanySize enum replaces raw string column.
-  - Composite index on (company_name, is_active).
-  - to_dict_list() for dashboard list views.
+JWT Auth changes (Phase 7):
+  - password_hash: scrypt-hashed password stored by /auth/register/recruiter.
+    Nullable so existing rows migrate safely.
+
+All other fields, indexes, and relationships are unchanged from Phase 2.
 
 Relationships:
   - jobs: one-to-many Job (cascade: all, delete-orphan)
 """
 
-import json
 from typing import Any
 
 from sqlalchemy import Boolean, Index, Integer, String, Text
@@ -26,19 +25,25 @@ from app.models.enums import CompanySize, SA_COMPANY_SIZE
 class Recruiter(BaseModel):
     """
     Recruiter account — posts jobs, manages applicants, tracks hiring metrics.
-
-    Platform rank and hire counts are updated asynchronously by the
-    AnalyticsService (Phase 4).
     """
 
     __tablename__ = "recruiters"
 
-    # ── Identity ─────────────────────────────────────────────────────────────
+    # ── Identity ──────────────────────────────────────────────────────────────
     full_name:    Mapped[str]        = mapped_column(String(200), nullable=False)
     email:        Mapped[str]        = mapped_column(String(254), unique=True, nullable=False, index=True)
     company_name: Mapped[str]        = mapped_column(String(300), nullable=False, index=True)
     industry:     Mapped[str | None] = mapped_column(String(200), nullable=True)
     phone:        Mapped[str | None] = mapped_column(String(30),  nullable=True)
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    # scrypt hash from Werkzeug — NEVER store plain text here.
+    # Nullable so rows created before Phase 7 migrate without error.
+    password_hash: Mapped[str | None] = mapped_column(
+        String(256),
+        nullable=True,
+        comment="Werkzeug scrypt hash. NULL = account predates JWT auth.",
+    )
 
     # ── Company metadata ──────────────────────────────────────────────────────
     company_size: Mapped[str | None] = mapped_column(
@@ -77,7 +82,9 @@ class Recruiter(BaseModel):
     # ── Serialisation ─────────────────────────────────────────────────────────
 
     def to_dict(self, exclude: set[str] | None = None) -> dict[str, Any]:
-        return super().to_dict(exclude=exclude)
+        """Full record. Never includes password_hash."""
+        _exclude = (exclude or set()) | {"password_hash"}
+        return super().to_dict(exclude=_exclude)
 
     def to_dict_list(self) -> dict[str, Any]:
         """Compact view for recruiter list endpoints."""
@@ -92,7 +99,7 @@ class Recruiter(BaseModel):
         }
 
     def to_dict_public(self) -> dict[str, Any]:
-        """External-safe view — omits internal metrics."""
+        """External-safe view — omits internal metrics and auth fields."""
         return self.to_dict(exclude={"is_active", "platform_rank"})
 
     def to_dict_dashboard(self) -> dict[str, Any]:

@@ -1,79 +1,105 @@
 "use client";
-import { useEffect, useRef } from "react";
+
+import { useEffect, useState , useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuthStore } from "@/lib/store/authStore";
 import { api, setClientToken, ApiError } from "@/lib/api/client";
 import { Candidate, Recruiter } from "@/lib/types";
 
-// ─── AuthProvider ─────────────────────────────────────────────────────────────
-// Placed in the root layout. On every page load it:
-//   1. Checks if Zustand has a persisted role/userId (user was previously logged in).
-//   2. If yes, calls POST /auth/refresh to get a fresh access token using the
-//      HttpOnly refresh cookie (browser sends it automatically).
-//   3. If the refresh succeeds, stores the new access token in memory.
-//   4. If the refresh fails (cookie expired/revoked), clears Zustand and
-//      redirects to /login.
-//   5. If Zustand has no role (fresh session), does nothing — middleware already
-//      redirects unauthenticated users away from protected pages.
-// ─────────────────────────────────────────────────────────────────────────────
-
 const PUBLIC_PATHS = ["/login"];
 
+
+// ─────────────────────────────────────────────
+// Hydration Hook
+// ─────────────────────────────────────────────
+function useAuthHydrated() {
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    const unsub = useAuthStore.persist.onFinishHydration(() => {
+      setHydrated(true);
+    });
+
+    setHydrated(useAuthStore.persist.hasHydrated());
+
+    return unsub;
+  }, []);
+
+  return hydrated;
+}
+
+
+// ─────────────────────────────────────────────
+// Auth Provider
+// ─────────────────────────────────────────────
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
-  const hydrated = useRef(false);
+  const hydrated = useAuthHydrated();
 
-  const { role, userId, setAuth, setAccessToken, logout } = useAuthStore();
+  const { setAuth, logout, setIsRefreshing } = useAuthStore();
+  
+  // This ref survives re-renders but resets on true unmount/remount.
+  // In React Strict Mode the double-invoke unmounts between the two runs,
+  // so the cleanup cancels the first in-flight call before the second fires.
+  const didRunRef = useRef(false);
 
   useEffect(() => {
-    // Only run once on mount
-    if (hydrated.current) return;
-    hydrated.current = true;
+    if (!hydrated) return;
+    if (didRunRef.current) return;   // ← guard: skip if already ran
+    didRunRef.current = true;
 
-    // On a public page with no prior session, nothing to do
-    if (!role || !userId) return;
+    setIsRefreshing(true);
 
-    // We have persisted identity — try to refresh the access token silently
-    ;(async () => {
+    (async () => {
       try {
         const res = await api.authRefresh();
-        const { access_token, user } = res.data;
-
-        // Store in Axios interceptor module memory
+        const { access_token, role, user } = res.data;
         setClientToken(access_token);
-        // Update Zustand memory state (not persisted but available to components)
-        setAccessToken(access_token);
-
-        // Re-confirm identity (in case user or name changed)
         setAuth(
-          res.data.role,
+          role,
           (user as Candidate | Recruiter).id,
           (user as Candidate | Recruiter).full_name,
           access_token
         );
-
       } catch (err) {
-        // Refresh failed — session is dead
         const code = err instanceof ApiError ? err.code : "";
-        if (
-          code === "REFRESH_EXPIRED" ||
-          code === "MISSING_TOKEN" ||
-          code === "TOKEN_REUSED" ||
-          code === "INVALID_TOKEN"
-        ) {
+        const AUTH_EXPIRY_CODES = new Set([
+          "REFRESH_EXPIRED", "MISSING_TOKEN", "TOKEN_REUSED",
+          "INVALID_TOKEN",   "TOKEN_INVALID",
+        ]);
+        if (AUTH_EXPIRY_CODES.has(code)) {
           logout();
           setClientToken(null);
           if (!PUBLIC_PATHS.includes(pathname)) {
             router.push("/login");
           }
+        } else {
+          console.error("[AuthProvider] Refresh failed:", err);
+          if (!PUBLIC_PATHS.includes(pathname)) {
+            router.push("/login?reason=session_check_failed");
+          }
         }
-        // For network errors, keep the user on the page and let the
-        // request interceptor handle per-request 401s.
+      } finally {
+        setIsRefreshing(false);
       }
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+    // Cleanup: if the component unmounts mid-flight (Strict Mode),
+    // reset the ref so the remount gets a fresh run
+    return () => {
+      didRunRef.current = false;
+    };
+  }, [hydrated]);
+
+  const isRefreshing = useAuthStore((s) => s.isRefreshing);
+  if (!hydrated || isRefreshing) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span>Loading...</span>
+      </div>
+    );
+  }
 
   return <>{children}</>;
 }

@@ -153,7 +153,7 @@ def serialize_job(j) -> dict:
         "responsibilities":     _safe(j, "responsibilities_list", []),
         "experience_years":     _safe(j, "experience_years", 0.0),
         "location":             _safe(j, "location"),
-        "job_type":             status.value if hasattr(job_type, "value") else job_type,
+        "job_type":             job_type.value if hasattr(job_type, "value") else job_type,
         "status":               status.value if hasattr(status, "value") else status,
         "salary_min":           _safe(j, "salary_min"),
         "salary_max":           _safe(j, "salary_max"),
@@ -172,7 +172,7 @@ def serialize_resume(r) -> dict:
     return {
         "id":                    _safe(r, "id"),
         "candidate_id":          _safe(r, "candidate_id"),
-        "filename":             _safe(r, "filename"),
+        "filename":             _safe(r, "filename") or _safe(r, "file_name"),
         "file_size_bytes":       _safe(r, "file_size_bytes"),
         "content_type":          _safe(r, "content_type"),
         "parse_status":          parse_status.value if hasattr(parse_status, "value") else parse_status,
@@ -197,6 +197,43 @@ def serialize_resume(r) -> dict:
 def serialize_application(a) -> dict:
     """Serialise an Application ORM object."""
     stage = _safe(a, "stage")
+
+    # ── Nested job (present in list_by_candidate queries) ────────────────────
+    job_obj = _safe(a, "job")
+    job_data = None
+    if job_obj is not None:
+        job_data = {
+            "id":      _safe(job_obj, "id"),
+            "title":   _safe(job_obj, "title"),
+            "company": _safe(job_obj, "company"),
+            "status":  _safe(job_obj, "status"),
+        }
+
+    # ── Nested candidate (present in list_by_job queries) ────────────────────
+    candidate_obj = _safe(a, "candidate")
+    candidate_data = None
+    if candidate_obj is not None:
+        candidate_data = {
+            "id":        _safe(candidate_obj, "id"),
+            "full_name": _safe(candidate_obj, "full_name"),
+            "email":     _safe(candidate_obj, "email"),
+            "headline":  _safe(candidate_obj, "headline"),
+        }
+
+    # ── Nested ATS score (present when eagerly loaded) ────────────────────────
+    score_obj = _safe(a, "ats_score")
+    score_data = None
+    if score_obj is not None:
+        score_label = _safe(score_obj, "score_label")
+        score_data = {
+            "final_score":    _safe(score_obj, "final_score", 0.0),
+            "score_label":    score_label.value if hasattr(score_label, "value") else score_label,
+            "matched_skills": _safe(score_obj, "matched_skills_list", []),
+            "missing_skills": _safe(score_obj, "missing_skills_list", []),
+            "improvement_tips": _safe(score_obj, "improvement_tips_list", []),
+            "summary_text":   _safe(score_obj, "summary_text"),
+        }
+
     return {
         "id":               _safe(a, "id"),
         "candidate_id":     _safe(a, "candidate_id"),
@@ -206,9 +243,14 @@ def serialize_application(a) -> dict:
         "cover_letter":     _safe(a, "cover_letter"),
         "recruiter_notes":  _safe(a, "recruiter_notes"),
         "rejection_reason": _safe(a, "rejection_reason"),
-        "applied_at":       _ts(a, "applied_at"),
+        "applied_at":       _ts(a, "applied_at") or _ts(a, "created_at"),
         "created_at":       _ts(a, "created_at"),
         "updated_at":       _ts(a, "updated_at"),
+
+        # ── Nested objects ────────────────────────────────────────────────────
+        "job":              job_data,
+        "candidate":        candidate_data,
+        "ats_score":        score_data,
     }
 
 

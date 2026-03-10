@@ -6,75 +6,50 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { AtsScoreCard } from "@/components/shared/AtsScoreCard";
 import { SkillBadge, ScoreBadge, StageBadge } from "@/components/shared";
 import { formatSalary, formatExperience, formatRelativeDate, formatScore } from "@/lib/utils/formatters";
+import { EditJobTab } from "@/components/recruiter/EditJobTab"; // ← ADD THIS IMPORT
 import {
-  ArrowLeft, Zap, Loader2, MapPin, Briefcase, DollarSign, Users, TrendingUp, ChevronRight,
-  AlertTriangle, CheckCircle2,
+  ArrowLeft, Zap, Loader2, MapPin, Briefcase, DollarSign, Users, CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
-import { useState, useEffect, KeyboardEvent } from "react";
-import { useForm } from "react-hook-form";
-import { X } from "lucide-react";
+import { useState } from "react";
 import { JobEnhancement } from "@/lib/types";
 
 export default function RecruiterJobDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const queryClient = useQueryClient();
-  const { userId } = useAuthStore();
-  const [enhancement, setEnhancement] = useState<JobEnhancement | null>(null);
-  const [activeTab, setActiveTab] = useState<"details" | "edit" | "candidates" | "performance">("details");
-  const [editSkills, setEditSkills] = useState<string[]>([]);
+  const { id }          = useParams<{ id: string }>();
+  const queryClient     = useQueryClient();
+  const { userId }      = useAuthStore();
+  const [enhancement,   setEnhancement] = useState<JobEnhancement | null>(null);
+  const [activeTab,     setActiveTab]   = useState<"details" | "edit" | "candidates" | "performance">("details");
+
+  // ── REMOVED: editSkills, useForm, editRegister, editHandleSubmit, editReset,
+  //             updateMutation — all now handled inside EditJobTab ────────────
 
   const { data: jobData, isLoading } = useQuery({
     queryKey: queryKeys.job(id),
-    queryFn: () => api.getJob(id),
+    queryFn:  () => api.getJob(id),
   });
 
   const { data: candidatesData, isLoading: candidatesLoading } = useQuery({
     queryKey: queryKeys.jobCandidates(id),
-    queryFn: () => api.getJobCandidates(id, { page: 1, limit: 20 }),
-    enabled: activeTab === "candidates",
+    queryFn:  () => api.getJobCandidates(id, { page: 1, limit: 20 }),
+    enabled:  activeTab === "candidates",
   });
 
   const { data: perfData } = useQuery({
     queryKey: queryKeys.jobPerformance(id),
-    queryFn: () => api.getJobPerformance(id),
-    enabled: activeTab === "performance",
+    queryFn:  () => api.getJobPerformance(id),
+    enabled:  activeTab === "performance",
   });
 
   const { data: skillGapsData } = useQuery({
     queryKey: queryKeys.jobSkillGaps(id),
-    queryFn: () => api.getJobSkillGaps(id),
-    enabled: activeTab === "candidates",
+    queryFn:  () => api.getJobSkillGaps(id),
+    enabled:  activeTab === "candidates",
   });
 
-  const { register: editRegister, handleSubmit: editHandleSubmit, reset: editReset, formState: { isPending: editPending } } = useForm<{ title: string; description: string; location: string; status: string; experience_years: number; salary_min: number | null; salary_max: number | null }>({});
-
-  useEffect(() => {
-    if (job) {
-      editReset({
-        title: job.title,
-        description: job.description,
-        location: job.location ?? "",
-        status: job.status,
-        experience_years: job.experience_years ?? 0,
-        salary_min: job.salary_min ?? null,
-        salary_max: job.salary_max ?? null,
-      });
-      setEditSkills(job.required_skills ?? []);
-    }
-  }, [job, editReset]);
-
-  const updateMutation = useMutation({
-    mutationFn: (body: any) => api.updateJob(id, body),
-    onSuccess: () => {
-      toast.success("Job updated!");
-      queryClient.invalidateQueries({ queryKey: queryKeys.job(id) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.recruiterJobs(userId!) });
-    },
-    onError: (err) => toast.error(getFriendlyError(err)),
-  });
-
+  // ── Enhance mutation stays here because it affects the page-level
+  //    enhancement banner — separate concern from the edit form ───────────────
   const enhanceMutation = useMutation({
     mutationFn: () => api.enhanceJob(id),
     onSuccess: (res) => {
@@ -87,43 +62,53 @@ export default function RecruiterJobDetailPage() {
 
   const job = jobData?.data;
 
-  const { userId } = useAuthStore();
-
   if (isLoading) return <div className="p-8 space-y-4"><div className="card p-6 skeleton h-48" /></div>;
-  if (!job) return <div className="p-8 text-center text-text-muted">Job not found.</div>;
+  if (!job)      return <div className="p-8 text-center text-text-muted">Job not found.</div>;
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      <Link href="/recruiter/jobs" className="inline-flex items-center gap-2 text-text-muted hover:text-text-primary text-sm mb-6 transition-colors">
+      <Link
+        href="/recruiter/jobs"
+        className="inline-flex items-center gap-2 text-text-muted hover:text-text-primary text-sm mb-6 transition-colors"
+      >
         <ArrowLeft className="w-4 h-4" /> Back to Jobs
       </Link>
 
-      {/* Header */}
+      {/* ── Job header card ──────────────────────────────────────────────── */}
       <div className="card p-6 mb-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-2">
               <h1 className="font-display text-2xl font-bold text-text-primary">{job.title}</h1>
-              <span className={`badge capitalize ${job.status === "active" ? "badge-excellent" : "badge-neutral"}`}>{job.status}</span>
+              <span className={`badge capitalize ${job.status === "active" ? "badge-excellent" : "badge-neutral"}`}>
+                {job.status}
+              </span>
             </div>
             <div className="flex flex-wrap gap-3 text-sm text-text-muted">
               <span className="flex items-center gap-1"><Briefcase className="w-4 h-4" />{job.company}</span>
               <span className="flex items-center gap-1"><MapPin className="w-4 h-4" />{job.location}</span>
               <span>{job.job_type}</span>
               {(job.salary_min || job.salary_max) && (
-                <span className="flex items-center gap-1"><DollarSign className="w-4 h-4" />{formatSalary(job.salary_min, job.salary_max, job.salary_currency)}</span>
+                <span className="flex items-center gap-1">
+                  <DollarSign className="w-4 h-4" />
+                  {formatSalary(job.salary_min, job.salary_max, job.salary_currency)}
+                </span>
               )}
               {job.experience_years && <span>{formatExperience(job.experience_years)}</span>}
             </div>
             <p className="text-text-muted text-xs mt-2">Posted {formatRelativeDate(job.created_at)}</p>
           </div>
+
           <div className="flex gap-2">
             <button
               onClick={() => enhanceMutation.mutate()}
               disabled={enhanceMutation.isPending}
               className="btn-secondary flex items-center gap-2"
             >
-              {enhanceMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4 text-electric-400" />}
+              {enhanceMutation.isPending
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Zap className="w-4 h-4 text-electric-400" />
+              }
               AI Enhance
             </button>
             <Link href={`/recruiter/jobs/${id}/applicants`} className="btn-primary flex items-center gap-2">
@@ -132,7 +117,7 @@ export default function RecruiterJobDetailPage() {
           </div>
         </div>
 
-        {/* Quality scores */}
+        {/* Quality / completeness scores */}
         {(job.quality_score !== undefined || job.completeness_score !== undefined) && (
           <div className="flex gap-4 mt-4 pt-4 border-t border-white/[0.06]">
             {job.quality_score !== undefined && (
@@ -151,31 +136,35 @@ export default function RecruiterJobDetailPage() {
         )}
       </div>
 
-      {/* AI Enhancement result */}
+      {/* ── AI enhancement result banner ─────────────────────────────────── */}
       {enhancement && (
         <div className="card p-6 mb-6 border-electric-500/20 bg-electric-500/3">
           <div className="flex items-center gap-2 mb-4">
             <CheckCircle2 className="w-5 h-5 text-electric-400" />
             <h3 className="font-display font-semibold text-electric-400">AI Enhancement Applied</h3>
-            {enhancement.llm_enhanced && <span className="badge badge-electric text-[10px]">LLM Enhanced</span>}
+            {enhancement.llm_enhanced && (
+              <span className="badge badge-electric text-[10px]">LLM Enhanced</span>
+            )}
           </div>
-          {/* Scores from enhance */}
           <div className="flex gap-4 mb-4">
             {enhancement.quality_score !== undefined && (
               <div className="card p-3 flex-1 text-center">
-                <div className="font-display text-xl font-bold text-electric-400">{Math.round(enhancement.quality_score * 100)}%</div>
+                <div className="font-display text-xl font-bold text-electric-400">
+                  {Math.round(enhancement.quality_score * 100)}%
+                </div>
                 <div className="text-text-muted text-xs">Quality Score</div>
               </div>
             )}
             {enhancement.completeness_score !== undefined && (
               <div className="card p-3 flex-1 text-center">
-                <div className="font-display text-xl font-bold text-volt-400">{Math.round(enhancement.completeness_score * 100)}%</div>
+                <div className="font-display text-xl font-bold text-volt-400">
+                  {Math.round(enhancement.completeness_score * 100)}%
+                </div>
                 <div className="text-text-muted text-xs">Completeness</div>
               </div>
             )}
           </div>
-          {/* Suggestions checklist */}
-          {enhancement.suggestions.length > 0 && (
+          {enhancement?.suggestions?.length > 0 && (
             <div className="mb-4">
               <p className="text-xs text-text-muted uppercase tracking-wider mb-2">Action Items</p>
               <ul className="space-y-1.5">
@@ -187,7 +176,6 @@ export default function RecruiterJobDetailPage() {
               </ul>
             </div>
           )}
-          {/* Enhanced description preview */}
           {enhancement.enhanced_description && (
             <div>
               <p className="text-xs text-text-muted uppercase tracking-wider mb-2">Enhanced Description Preview</p>
@@ -199,7 +187,7 @@ export default function RecruiterJobDetailPage() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* ── Tabs ─────────────────────────────────────────────────────────── */}
       <div className="flex border-b border-white/[0.06] mb-6">
         {(["details", "edit", "candidates", "performance"] as const).map((tab) => (
           <button
@@ -216,14 +204,15 @@ export default function RecruiterJobDetailPage() {
         ))}
       </div>
 
-      {/* Tab content */}
+      {/* ── Tab content ──────────────────────────────────────────────────── */}
+
       {activeTab === "details" && (
         <div className="space-y-6 animate-fade-in">
           <div className="card p-6">
             <h3 className="font-display font-semibold text-text-primary mb-3">Description</h3>
             <p className="text-text-secondary text-sm leading-relaxed whitespace-pre-wrap">{job.description}</p>
           </div>
-          {job.required_skills.length > 0 && (
+          {job.required_skills?.length > 0 && (
             <div className="card p-6">
               <h3 className="font-display font-semibold text-text-primary mb-3">Required Skills</h3>
               <div className="flex flex-wrap gap-2">
@@ -231,7 +220,7 @@ export default function RecruiterJobDetailPage() {
               </div>
             </div>
           )}
-          {job.nice_to_have_skills.length > 0 && (
+          {job.nice_to_have_skills?.length > 0 && (
             <div className="card p-6">
               <h3 className="font-display font-semibold text-text-primary mb-3">Nice to Have</h3>
               <div className="flex flex-wrap gap-2">
@@ -242,9 +231,19 @@ export default function RecruiterJobDetailPage() {
         </div>
       )}
 
+      {/* ── EDIT TAB — wired to EditJobTab component ──────────────────────
+          Passes the already-fetched `job` object as a prop.
+          EditJobTab owns all form state, validation, save & enhance logic.
+          When it saves, it invalidates queryKeys.job(id) which causes
+          this page's useQuery to refetch — details tab updates automatically. */}
+      {activeTab === "edit" && (
+        <div className="animate-fade-in">
+          <EditJobTab job={job} />
+        </div>
+      )}
+
       {activeTab === "candidates" && (
         <div className="animate-fade-in space-y-5">
-          {/* Ranked applicants */}
           {candidatesLoading ? (
             <div className="space-y-2">{[1,2,3].map((i) => <div key={i} className="card p-4 skeleton h-16" />)}</div>
           ) : !candidatesData?.data?.length ? (
@@ -269,7 +268,6 @@ export default function RecruiterJobDetailPage() {
             </div>
           )}
 
-          {/* Skill gaps panel — GET /jobs/<id>/skill-gaps */}
           {skillGapsData?.data && (
             <div className="grid grid-cols-2 gap-4">
               <div className="card p-5">
@@ -277,7 +275,7 @@ export default function RecruiterJobDetailPage() {
                   <span className="w-2 h-2 rounded-full bg-red-400 inline-block" /> Top Missing Skills
                 </h4>
                 <div className="space-y-2">
-                  {skillGapsData.data.top_missing_skills.slice(0, 8).map((item, i) => (
+                  {(skillGapsData?.data?.top_missing_skills ?? []).slice(0, 8).map((item, i) => (
                     <div key={i} className="flex items-center justify-between">
                       <SkillBadge skill={item.skill} variant="missing" />
                       <span className="text-xs text-text-muted">{item.count} candidates</span>
@@ -290,7 +288,7 @@ export default function RecruiterJobDetailPage() {
                   <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Top Matched Skills
                 </h4>
                 <div className="space-y-2">
-                  {skillGapsData.data.top_matched_skills.slice(0, 8).map((item, i) => (
+                  {(skillGapsData?.data?.top_matched_skills ?? []).slice(0, 8).map((item, i) => (
                     <div key={i} className="flex items-center justify-between">
                       <SkillBadge skill={item.skill} variant="matched" />
                       <span className="text-xs text-text-muted">{item.count} candidates</span>
@@ -314,7 +312,7 @@ export default function RecruiterJobDetailPage() {
             <div className="text-text-muted text-sm mt-1">Avg ATS Score</div>
           </div>
           <div className="card p-5 text-center">
-            <div className="font-display text-3xl font-bold text-text-primary">{perfData.data.top_skills_matched.length}</div>
+            <div className="font-display text-3xl font-bold text-text-primary">{perfData.data.top_skills_matched?.length}</div>
             <div className="text-text-muted text-sm mt-1">Matched Skills</div>
           </div>
           <div className="card p-5 col-span-3">

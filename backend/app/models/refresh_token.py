@@ -172,10 +172,18 @@ class RefreshToken(BaseModel):
         """True if the token has not been revoked and has not expired."""
         if self.revoked:
             return False
-        return datetime.now(timezone.utc) < self.expires_at
+
+        expires = self.expires_at
+
+        # 🔥 SQLite returns naive datetime — fix it safely
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+
+        return datetime.now(timezone.utc) < expires
 
     def to_dict(self, exclude: set[str] | None = None) -> dict[str, Any]:
         """Never include token_hash in serialised output."""
         d = super().to_dict(exclude=exclude)
         d.pop("token_hash", None)   # never leak the hash
         return d
+    

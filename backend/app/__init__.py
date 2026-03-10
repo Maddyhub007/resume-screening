@@ -1,6 +1,11 @@
 """
 app/__init__.py  —  Flask Application Factory
 
+JWT Auth changes (Phase 7):
+  - _validate_config() now checks SECRET_KEY strength and logs JWT TTL settings.
+  - _init_database() imports refresh_token model so create_all() sees it.
+  - Everything else is identical to the Phase 6 factory.
+
 The ONLY function that should be called to create the Flask application.
 All wiring happens here in a defined order:
   1. Load config
@@ -61,8 +66,6 @@ def create_app(env: str | None = None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config_class)
 
-    app.url_map.strict_slashes = False
-
     # ── 2. Configure logging (must be first — everything after logs) ──────────
     configure_logging(
         level=app.config.get("LOG_LEVEL", "INFO"),
@@ -110,20 +113,29 @@ def _init_extensions(app: Flask) -> None:
     """Initialise Flask extensions."""
     from app.core.extensions import cors
 
+    origins = app.config["ALLOWED_ORIGINS"]
+
+    # Guard: wildcard origin is incompatible with supports_credentials=True.
+    # If someone sets ALLOWED_ORIGINS=* in production, fail loudly at boot.
+    if "*" in origins:
+        raise RuntimeError(
+            "ALLOWED_ORIGINS cannot be '*' when supports_credentials=True. "
+            "Set it to the exact frontend origin, e.g. https://yourapp.com"
+        )
+
     cors.init_app(
         app,
-        resources={r"/api/*": {"origins": app.config["ALLOWED_ORIGINS"]}},
-        supports_credentials=True,
-        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization"],
-    )
-    logger.debug(
-        "CORS initialised",
-        extra={"origins": app.config["ALLOWED_ORIGINS"]})
+        resources={r"/api/*": {"origins": origins}},
+        supports_credentials=True, 
+        allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
+        expose_headers=["Content-Type", "X-Request-ID"],
+        methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        )
+    logger.debug("CORS initialised", extra={"origins": app.config["ALLOWED_ORIGINS"]})
 
 
 def _init_database(app: Flask) -> None:
-    """Initialise SQLAlchemy and create tables."""
+    """Initialise SQLAlchemy and create tables (dev/test only — use Alembic in prod)."""
     from app.core.database import init_db
     init_db(app)
 
@@ -191,6 +203,37 @@ def _register_error_handlers(app: Flask) -> None:
     def bad_request(e: Any) -> tuple:
         return jsonify({"success": False, "error": {"error_code": "BAD_REQUEST", "message": "Bad request."}}), 400
 
+    @app.errorhandler(401)
+    def unauthorized(e: Any) -> tuple:
+        # Flask-JWT-Extended attaches error details to the exception description.
+        # Preserve them if present, fall back to MISSING_TOKEN only if nothing else.
+        description = getattr(e, "description", "") or ""
+
+        # JWT errors come through with specific messages we can map:
+        jwt_code_map = {
+            "Token has expired":              ("TOKEN_EXPIRED",  "Your session has expired. Please log in again."),
+            "Signature verification failed":  ("INVALID_TOKEN",  "Invalid token. Please log in again."),
+            "Not enough segments":            ("INVALID_TOKEN",  "Invalid token. Please log in again."),
+            "Invalid header string":          ("INVALID_TOKEN",  "Invalid token. Please log in again."),
+        }
+
+        for fragment, (code, message) in jwt_code_map.items():
+            if fragment.lower() in str(description).lower():
+                return jsonify({
+                    "success": False,
+                    "error": {"error_code": code, "message": message}
+                }), 401
+
+        # Default fallback — genuine "no token provided" case
+        return jsonify({
+            "success": False,
+            "error": {"error_code": "MISSING_TOKEN", "message": "Authentication required."}
+        }), 401
+
+    @app.errorhandler(403)
+    def forbidden(e: Any) -> tuple:
+        return jsonify({"success": False, "error": {"error_code": "FORBIDDEN", "message": "You do not have permission to perform this action."}}), 403
+
     @app.errorhandler(404)
     def not_found(e: Any) -> tuple:
         return jsonify({"success": False, "error": {"error_code": "NOT_FOUND", "message": "Endpoint not found."}}), 404
@@ -239,20 +282,58 @@ def _validate_config(app: Flask) -> None:
     Validate critical configuration at startup.
 
     Fail fast — better to crash at boot than fail on the first request.
+
+    JWT Auth additions:
+      - Warns if SECRET_KEY is weak or default (it doubles as JWT signing key).
+      - Logs JWT token TTL settings for operational visibility.
     """
     issues = []
 
-    # Secret key must not be default in production
+    # ── SECRET_KEY (also signs JWTs) ──────────────────────────────────────────
+    secret = app.config.get("SECRET_KEY", "")
+    weak_defaults = {"", "dev-secret-change-in-production", "change-me", "secret"}
     if not app.config.get("DEBUG"):
-        if app.config.get("SECRET_KEY") in ("", "dev-secret-change-in-production", "change-me"):
-            issues.append("SECRET_KEY must be changed in production.")
+        if secret in weak_defaults:
+            issues.append(
+                "SECRET_KEY must be set to a cryptographically random value in production. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        elif len(secret) < 32:
+            issues.append(
+                f"SECRET_KEY is only {len(secret)} characters. "
+                "Use at least 32 characters for JWT security."
+            )
 
-    # Groq key must be set (it's a required service per project decisions)
+    # ── JWT TTL sanity checks ─────────────────────────────────────────────────
+    access_ttl  = app.config.get("JWT_ACCESS_TTL_MINUTES", 15)
+    refresh_ttl = app.config.get("JWT_REFRESH_TTL_DAYS", 7)
+
+    if access_ttl < 1:
+        issues.append(f"JWT_ACCESS_TTL_MINUTES={access_ttl} is too short (minimum 1).")
+    if access_ttl > 60:
+        logger.warning(
+            "JWT_ACCESS_TTL_MINUTES is unusually long",
+            extra={"value": access_ttl, "recommended": "≤ 15"},
+        )
+    if refresh_ttl > 90:
+        logger.warning(
+            "JWT_REFRESH_TTL_DAYS is very long",
+            extra={"value": refresh_ttl, "recommended": "≤ 30"},
+        )
+
+    logger.info(
+        "JWT configuration",
+        extra={
+            "access_ttl_minutes": access_ttl,
+            "refresh_ttl_days":   refresh_ttl,
+        },
+    )
+
+    # ── Groq API key ──────────────────────────────────────────────────────────
     if not app.config.get("GROQ_API_KEY"):
-        # Warn but don't hard-fail — allows local dev without Groq key
         logger.warning("GROQ_API_KEY is not set. Groq-powered features will be unavailable.")
 
-    # Matching weights must sum to ~1.0
+    # ── Scoring weight sum ────────────────────────────────────────────────────
     weights = (
         app.config.get("WEIGHT_SEMANTIC", 0)
         + app.config.get("WEIGHT_KEYWORD", 0)

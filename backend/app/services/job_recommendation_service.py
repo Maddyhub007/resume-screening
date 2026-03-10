@@ -40,6 +40,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+from app.models.job import Job
+
 logger = logging.getLogger(__name__)
 
 
@@ -130,19 +132,22 @@ class JobRecommendationService:
         # ── 1. Fetch cached scores ─────────────────────────────────────────────
         cached_scores = self._ats_repo.get_top_for_resume(
             resume_id=resume.id,
-            limit=top_n * 3,  # Over-fetch to allow filtering
+            top_n=top_n * 3,  # Over-fetch to allow filtering
         )
 
         scored_job_ids = {s.job_id for s in cached_scores}
 
         # ── 2. Find active jobs not yet scored ────────────────────────────────
         if rescore_new:
-            active_jobs = self._job_repo.list_active(
+            active_jobs, _ = self._job_repo.list_active(
                 page=1,
-                per_page=50,
-                status=JobStatus.ACTIVE,
+                limit=50,
             )
-            unscored = [j for j in active_jobs if j.id not in scored_job_ids]
+
+            flattened_jobs = [j for j in active_jobs if isinstance(j, Job)]
+            
+
+            unscored = [j for j in flattened_jobs if j.id not in scored_job_ids]
             # Score up to 20 new jobs per call to keep latency reasonable
             for job in unscored[:20]:
                 try:
@@ -157,7 +162,7 @@ class JobRecommendationService:
             # Refresh cached scores
             cached_scores = self._ats_repo.get_top_for_resume(
                 resume_id=resume.id,
-                limit=top_n * 3,
+                top_n=top_n * 3,
             )
 
         # ── 3. Load job objects for filtering ────────────────────────────────

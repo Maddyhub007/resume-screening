@@ -122,7 +122,7 @@ export default function CandidateDashboard() {
           ) : (
             <div className="space-y-2">
               {applications.slice(0, 5).map((app) => (
-                <Link key={app.id} href={`/candidate/applications/${app.id}`} className="card-hover p-4 flex items-center gap-3 group block">
+                <Link key={app.id} href={`/candidate/applications/${app.id}`} className="card-hover p-4 flex items-center gap-3 group ">
                   <div className="w-8 h-8 rounded-lg bg-charcoal-700 flex items-center justify-center">
                     <Briefcase className="w-4 h-4 text-text-muted" />
                   </div>
@@ -143,7 +143,7 @@ export default function CandidateDashboard() {
 
 function RecommendationCard({ rec }: { rec: JobRecommendation }) {
   return (
-    <Link href={`/candidate/jobs/${rec.job_id}`} className="card-hover p-4 flex items-start gap-3 group block">
+    <Link href={`/candidate/jobs/${rec.job_id}`} className="card-hover p-4 flex items-start gap-3 group">
       <div className="w-10 h-10 rounded-xl bg-charcoal-700 flex items-center justify-center flex-shrink-0">
         <Briefcase className="w-5 h-5 text-text-muted" />
       </div>

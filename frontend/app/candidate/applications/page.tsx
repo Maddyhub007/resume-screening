@@ -79,7 +79,7 @@ export default function ApplicationsPage() {
       ) : (
         <div className="space-y-2">
           {applications.map((app) => (
-            <Link key={app.id} href={`/candidate/applications/${app.id}`} className="card-hover p-4 flex items-center gap-4 group block">
+            <Link key={app.id} href={`/candidate/applications/${app.id}`} className="card-hover p-4 flex items-center gap-4 group ">
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-text-primary group-hover:text-electric-400 transition-colors">
                   {app.job?.title ?? "Job Application"}

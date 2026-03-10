@@ -2,13 +2,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store/authStore";
-<<<<<<< HEAD
 import { api, ApiError, getFriendlyError, setClientToken } from "@/lib/api/client";
 import { Briefcase, User, ArrowRight, Loader2, Zap, Eye, EyeOff } from "lucide-react";
-=======
-import { ApiError, api, getFriendlyError } from "@/lib/api/client";
-import { Briefcase, User, ArrowRight, Loader2, Zap } from "lucide-react";
->>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
 import { toast } from "sonner";
 import { Candidate, Recruiter } from "@/lib/types";
 
@@ -51,7 +46,13 @@ export default function LoginPage() {
     // 2. Store identity in Zustand (persisted) + token in Zustand memory state
     setAuth(role, user.id, user.full_name, accessToken);
     // 3. Navigate to dashboard
-    router.push(role === "candidate" ? "/candidate/dashboard" : "/recruiter/dashboard");
+    setTimeout(() => {
+      router.push(role === "candidate"
+        ? "/candidate/dashboard"
+        : "/recruiter/dashboard"
+      );
+    }, 0);
+    
   };
 
   // ── Login: POST /auth/login ────────────────────────────────────────────────
@@ -61,7 +62,6 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-<<<<<<< HEAD
       const res = await api.authLogin({
         email:    email.toLowerCase().trim(),
         password,
@@ -72,29 +72,15 @@ export default function LoginPage() {
       handleAuthSuccess(access_token, role, user as Candidate | Recruiter);
 
     } catch (err) {
-      // INVALID_CREDENTIALS covers both "wrong password" and "unknown email"
-      // (backend is deliberately vague to prevent user enumeration)
-      if (err instanceof ApiError && err.code === "INVALID_CREDENTIALS") {
-        toast.error("Invalid email or password.");
-      } else if (err instanceof ApiError && err.code === "USER_NOT_FOUND") {
-        // Account doesn't exist yet — offer to register
-=======
-      const res = await api.login({ email, role });
-      setAuth(role, res.data.user_id, res.data.user.full_name);
-      router.push(role === "candidate" ? "/candidate/dashboard" : "/recruiter/dashboard");
-      return;
-    } catch (err) {
-      if (err instanceof ApiError && err.code === "USER_NOT_FOUND") {
-        setNotFound(true);
->>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
-        setStep("register");
-      } else {
-        toast.error(getFriendlyError(err));
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+        if (err instanceof ApiError && err.code === "INVALID_CREDENTIALS") {
+          toast.error("Invalid email or password.");
+          // The "no account? Create one" link already exists in the JSX below the form.
+          // That's the correct UX for this flow. No auto-redirect needed.
+        } else {
+          toast.error(getFriendlyError(err));
+        }
+  }
+}
 
   // ── Register: POST /auth/register/candidate|recruiter ─────────────────────
   const handleRegister = async (e: React.FormEvent) => {
@@ -105,7 +91,6 @@ export default function LoginPage() {
     try {
       let res;
       if (role === "candidate") {
-<<<<<<< HEAD
         res = await api.authRegisterCandidate({
           full_name: fullName,
           email:     email.toLowerCase().trim(),
@@ -118,17 +103,6 @@ export default function LoginPage() {
           password:     regPassword,
           company_name: companyName,
         });
-=======
-        const res = await api.registerCandidate({ full_name: fullName, email });
-        setAuth("candidate", res.data.user_id, res.data.user.full_name);
-        toast.success("Account created! Welcome aboard.");
-        router.push("/candidate/dashboard");
-      } else {
-        const res = await api.registerRecruiter({ full_name: fullName, email, company_name: companyName });
-        setAuth("recruiter", res.data.user_id, res.data.user.full_name);
-        toast.success("Account created! Welcome aboard.");
-        router.push("/recruiter/dashboard");
->>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
       }
       const { access_token, user } = res.data;
       toast.success("Account created! Welcome aboard.");

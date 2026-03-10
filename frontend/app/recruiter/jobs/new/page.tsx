@@ -1,7 +1,6 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -60,7 +59,7 @@ export default function NewJobPage() {
       router.push(`/recruiter/jobs/${res.data.id}`);
     },
     onError: (err) => toast.error(getFriendlyError(err)),
-  }));
+  });
 
   const addSkill = (list: string[], setList: (v: string[]) => void, input: string, setInput: (v: string) => void) => {
     const trimmed = input.trim();

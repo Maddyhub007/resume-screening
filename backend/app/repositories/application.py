@@ -9,6 +9,7 @@ from app.core.database import db
 from app.models.application import Application
 from app.models.enums import ApplicationStage
 from app.repositories.base import BaseRepository
+from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +35,17 @@ class ApplicationRepository(BaseRepository[Application]):
     def application_exists(self, candidate_id: str, job_id: str) -> bool:
         return self.get_by_candidate_and_job(candidate_id, job_id) is not None
 
-    def list_by_job(
-        self,
-        job_id: str,
-        stage: str | None = None,
-        page: int = 1,
-        limit: int = 20,
-    ) -> tuple[list[Application], int]:
-        """All applications for a job, optionally filtered by stage."""
-        query = db.session.query(Application).filter(Application.job_id == job_id)
+    def list_by_job(self, job_id, stage=None, page=1, limit=20):
+        query = (
+            db.session.query(Application)
+            .options(
+                joinedload(Application.candidate),
+                joinedload(Application.ats_score),
+            )
+            .filter(Application.job_id == job_id)
+        )
         if stage:
             query = query.filter(Application.stage == stage)
-
         total = query.count()
         items = (
             query
@@ -56,20 +56,17 @@ class ApplicationRepository(BaseRepository[Application]):
         )
         return items, total
 
-    def list_by_candidate(
-        self,
-        candidate_id: str,
-        stage: str | None = None,
-        page: int = 1,
-        limit: int = 20,
-    ) -> tuple[list[Application], int]:
-        """All applications by a candidate, optionally filtered by stage."""
-        query = db.session.query(Application).filter(
-            Application.candidate_id == candidate_id
+    def list_by_candidate(self, candidate_id, stage=None, page=1, limit=20):
+        query = (
+            db.session.query(Application)
+            .options(
+                joinedload(Application.job),
+                joinedload(Application.ats_score),
+            )
+            .filter(Application.candidate_id == candidate_id)
         )
         if stage:
             query = query.filter(Application.stage == stage)
-
         total = query.count()
         items = (
             query

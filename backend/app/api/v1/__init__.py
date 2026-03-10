@@ -28,6 +28,7 @@ from .jobs         import jobs_bp
 from .recruiters   import recruiters_bp
 from .resumes      import resumes_bp
 from .scoring      import scoring_bp
+from .resume_builder import resume_builder_bp
 
 # Master v1 blueprint — all resource blueprints are registered onto this
 api_v1_bp = Blueprint("api_v1", __name__)
@@ -41,5 +42,7 @@ api_v1_bp.register_blueprint(resumes_bp,      url_prefix="/resumes")       # /re
 api_v1_bp.register_blueprint(applications_bp, url_prefix="/applications")  # /applications
 api_v1_bp.register_blueprint(scoring_bp,      url_prefix="/scores")        # /scores
 api_v1_bp.register_blueprint(analytics_bp,    url_prefix="/analytics")     # /analytics
+api_v1_bp.register_blueprint(resume_builder_bp,  url_prefix="/resume-builder") # /resume-builder ← Phase 8
+
 
 __all__ = ["api_v1_bp"]

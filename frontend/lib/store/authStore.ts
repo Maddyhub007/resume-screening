@@ -15,6 +15,7 @@ interface AuthState {
 
   // Memory-only (cleared on page reload — re-hydrated via /auth/refresh)
   accessToken: string | null;
+  isRefreshing: boolean;
 
   // Actions
   setAuth: (
@@ -24,6 +25,7 @@ interface AuthState {
     accessToken: string
   ) => void;
   setAccessToken: (token: string) => void;
+  setIsRefreshing: (v: boolean) => void;
   logout: () => void;
 }
 
@@ -40,6 +42,9 @@ export const useAuthStore = create<AuthState>()(
         set({ role, userId, userName, accessToken }),
 
       setAccessToken: (accessToken) => set({ accessToken }),
+
+      isRefreshing: false,   // initial value
+      setIsRefreshing: (isRefreshing) => set({ isRefreshing }),
 
       logout: () =>
         set({ role: null, userId: null, userName: null, accessToken: null }),

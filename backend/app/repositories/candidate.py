@@ -1,5 +1,21 @@
 """
 app/repositories/candidate.py — Candidate-specific data access methods.
+
+FIXES APPLIED:
+  BUG #3 — list_active() now uses self.base_query() as its starting point.
+
+  Previously it built its own db.session.query(Candidate) and only filtered
+  is_active == True. This bypassed the SoftDeleteMixin filter in base_query()
+  which adds .filter(Candidate.is_deleted == False).
+
+  Result: a record that was soft-deleted (is_deleted=True) would still appear
+  in list_active() responses, and the behavior differed from all other
+  repository methods that use base_query() correctly.
+
+  The fix starts from self.base_query() which:
+    1. Filters is_deleted == False (from SoftDeleteMixin)
+    2. Can be extended with additional filters cleanly
+    3. Matches the behavior of list_paginated() in BaseRepository
 """
 
 import logging
@@ -40,19 +56,24 @@ class CandidateRepository(BaseRepository[Candidate]):
         location: str | None = None,
     ) -> tuple[list[Candidate], int]:
         """
-        Paginated list of active candidates with optional filters.
+        Paginated list of active, non-deleted candidates with optional filters.
+
+        FIX: Now starts from self.base_query() which correctly applies
+        the is_deleted == False filter from SoftDeleteMixin.
+        Previously this built its own query and missed that filter.
 
         Args:
             page, limit:   Pagination.
-            search:        Full-text search on full_name and email.
+            search:        Full-text search on full_name, email, headline.
             open_to_work:  Filter by job-seeking status.
             location:      Filter by location (ILIKE).
 
         Returns:
             (items, total) tuple.
         """
+        # FIX: use base_query() — applies is_deleted == False automatically
         query = (
-            db.session.query(Candidate)
+            self.base_query()
             .filter(Candidate.is_active == True)  # noqa: E712
         )
 
@@ -79,6 +100,15 @@ class CandidateRepository(BaseRepository[Candidate]):
             .offset((page - 1) * limit)
             .limit(limit)
             .all()
+        )
+
+        logger.debug(
+            "list_active",
+            extra={
+                "total":    total,
+                "page":     page,
+                "returned": len(items),
+            },
         )
         return items, total
 

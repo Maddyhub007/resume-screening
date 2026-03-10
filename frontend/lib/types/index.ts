@@ -29,6 +29,12 @@ export interface ImprovementTip {
   priority: TipPriority;
 }
 
+export interface RoleSuggestion {
+  title: string;
+  reason: string;
+  confidence: number;
+}
+
 export interface AtsScore {
   id: string;
   resume_id: string;
@@ -85,7 +91,7 @@ export interface Resume {
   skill_count: number;
   summary_text?: string;
   resume_summary?: string;
-  role_suggestions?: string[];
+  role_suggestions?: RoleSuggestion[];
   improvement_tips?: ImprovementTip[];
   is_active: boolean;
   created_at: string;
@@ -337,4 +343,103 @@ export interface StageUpdateForm {
   stage: ApplicationStage;
   recruiter_notes?: string;
   rejection_reason?: string;
+}
+
+
+export interface BuilderTemplate {
+  id: string;
+  name: string;
+  description: string;
+  layout: "single-column" | "two-column" | "skills-first";
+  section_order: string[];
+  tone: string;
+  keyword_density: "high" | "medium";
+  accent_color: string;
+  font_family: string;
+  best_for: string[];
+}
+
+export interface BuilderAtsPreview {
+  final_score: number;
+  label: "excellent" | "good" | "fair" | "weak";
+  keyword_score: number;
+  semantic_score: number;
+  experience_score: number;
+  section_quality_score: number;
+  matched_skills: string[];
+  missing_skills: string[];
+}
+
+export interface BuilderExperienceEntry {
+  role: string;
+  company: string;
+  date_range: string;
+  impact_points: string[];
+}
+
+export interface BuilderEducationEntry {
+  degree: string;
+  institution: string;
+  year: string;
+  gpa: string;
+}
+
+export interface BuilderProjectEntry {
+  name: string;
+  description: string;
+  tech_used: string[];
+}
+
+export interface BuilderContent {
+  summary: string;
+  skills: string[];
+  experience: BuilderExperienceEntry[];
+  education: BuilderEducationEntry[];
+  certifications: string[];
+  projects: BuilderProjectEntry[];
+}
+
+export interface BuildResult {
+  draft_id: string;
+  content: BuilderContent;
+  ats_preview: BuilderAtsPreview;
+  template: BuilderTemplate;
+  job_id: string;
+  job_title: string;
+  iteration_count: number;
+  llm_used: boolean;
+}
+
+export type DraftStatus = "draft" | "refined" | "finalized";
+
+export interface ResumeDraft {
+  id: string;
+  candidate_id: string;
+  job_id: string | null;
+  template_id: string;
+  status: DraftStatus;
+  predicted_score: number | null;
+  iteration_count: number;
+  is_finalized: boolean;
+  created_at: string;
+  updated_at: string;
+  // Present in GET /resume-builder/drafts/<id> only
+  content?: BuilderContent;
+  score_breakdown?: {
+    keyword_score: number;
+    semantic_score: number;
+    experience_score: number;
+    section_quality_score: number;
+    label: string;
+  };
+  matched_skills?: string[];
+  missing_skills?: string[];
+}
+
+export interface SaveDraftResult {
+  resume_id: string;
+  draft_id: string;
+  final_score: number;
+  score_label: string;
+  ats_score_id: string;
 }

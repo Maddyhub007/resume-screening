@@ -222,8 +222,8 @@ def score_preview(resume_id: str):
             job_title=getattr(job, "title", ""),
             job_description=getattr(job, "description", ""),
             job_required_skills=getattr(job, "required_skills_list", []) or [],
-            job_nice_to_have=getattr(job, "nice_to_have_skills_list", []) or [],
-            required_years=getattr(job, "experience_years", 0.0) or 0.0,
+            job_nice_to_have_skills=getattr(job, "nice_to_have_skills_list", []) or [],
+            job_experience_years=getattr(job, "experience_years", 0.0) or 0.0,
         )
 
         return success(

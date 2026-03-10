@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback } from "react";
-import { useDropzone } from "react-dropzone";
+import { useDropzone , FileRejection } from "react-dropzone";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, queryKeys, getFriendlyError } from "@/lib/api/client";
@@ -56,16 +56,20 @@ export default function ResumesPage() {
     finally { setAnalyzingId(null); }
   };
 
-  const onDrop = useCallback((accepted: File[], rejected: { errors: { code: string }[] }[]) => {
-    if (rejected.length) {
+  const onDrop = useCallback(
+  (acceptedFiles: File[], fileRejections: FileRejection[]) => {
+    if (fileRejections.length > 0) {
       toast.error("Only PDF and DOCX files under 10MB are accepted.");
       return;
     }
-    const file = accepted[0];
-    if (!ALLOWED.includes(file.type)) { toast.error("Only PDF and DOCX files accepted"); return; }
-    if (file.size > MAX_BYTES) { toast.error("File must be under 10 MB"); return; }
+
+    const file = acceptedFiles[0];
+    if (!file) return;
+
     uploadMutation.mutate(file);
-  }, [uploadMutation]);
+  },
+  [uploadMutation]
+  );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -250,8 +254,14 @@ function ResumeCard({ resume, onDelete, onAnalyze, isAnalyzing, isDeleting }: {
                 <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Suggested Roles</h4>
                 <div className="flex flex-wrap gap-1.5">
                   {resume.role_suggestions.map((r, i) => (
-                    <span key={i} className="badge badge-electric">{r}</span>
-                  ))}
+                        <div key={i} className="badge badge-electric">
+                          <div className="font-medium">{r.title}</div>
+                          <div className="font-small">{r.reason}</div>
+                          <div className="text-xs opacity-70">
+                            {Math.round(r.confidence * 100)}% match
+                          </div>
+                        </div>
+                      ))}
                 </div>
               </div>
             )}

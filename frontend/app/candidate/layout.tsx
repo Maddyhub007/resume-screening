@@ -7,7 +7,7 @@ import { useLogout } from "@/lib/hooks/useLogout";
 import { useQuery } from "@tanstack/react-query";
 import { api, queryKeys } from "@/lib/api/client";
 import {
-  LayoutDashboard, Briefcase, FileText, ClipboardList, User, LogOut, Zap,
+  LayoutDashboard, Briefcase, FileText, ClipboardList, User, LogOut, Zap, Wand2
 } from "lucide-react";
 import { StatusDot } from "@/components/shared";
 
@@ -15,6 +15,7 @@ const NAV = [
   { href: "/candidate/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/candidate/jobs", icon: Briefcase, label: "Jobs" },
   { href: "/candidate/resumes", icon: FileText, label: "My Resumes" },
+  { href: "/candidate/resume-builder",  icon: Wand2, label: "Resume Builder" },
   { href: "/candidate/applications", icon: ClipboardList, label: "Applications" },
   { href: "/candidate/profile", icon: User, label: "Profile" },
 ];

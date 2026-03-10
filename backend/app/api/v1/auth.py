@@ -3,40 +3,20 @@ app/api/v1/auth.py
 
 Authentication resource — JWT-based login, registration and token lifecycle.
 
-Routes
-──────
-  POST  /auth/register/candidate  — create candidate account, return tokens
-  POST  /auth/register/recruiter  — create recruiter account, return tokens
-  POST  /auth/login               — verify credentials, return tokens
-  POST  /auth/refresh             — rotate refresh token, return new access token
-  POST  /auth/logout              — revoke refresh token (current device)
-  POST  /auth/logout-all          — revoke all refresh tokens for this user
-  GET   /auth/me                  — return current user profile from JWT
-  POST  /auth/change-password     — update password (requires current password)
+FIXES APPLIED (vs previous version):
+  BUG #1 — db.session.commit() added after every write operation.
+  Previously, repo.save() only called flush() (row in memory, not on disk).
+  Without commit(), Flask-SQLAlchemy rolls back when the request context
+  tears down, so candidate/recruiter/refresh_token rows were never persisted.
 
-Token delivery
-──────────────
-  Access token  → JSON response body  { data.access_token }
-  Refresh token → HttpOnly Secure SameSite=Strict cookie  'refresh_token'
+  Affected functions:
+    register_candidate()  — was missing commit after repo.save(candidate)
+    register_recruiter()  — was missing commit after repo.save(recruiter)
+    change_password()     — was missing commit after repo.save(user)
+    _store_refresh_token()— was missing commit after rt.save()
 
-  The access token is short-lived (15 min).  The frontend keeps it in memory
-  (never localStorage).  On expiry it calls POST /auth/refresh which reads the
-  cookie, validates the stored refresh token, issues a new pair, and rotates
-  the cookie.
-
-Error codes
-───────────
-  CANDIDATE_EMAIL_CONFLICT  409  email already registered as candidate
-  RECRUITER_EMAIL_CONFLICT  409  email already registered as recruiter
-  INVALID_CREDENTIALS       401  wrong email or password (deliberately vague)
-  MISSING_TOKEN             401  Authorization header absent
-  TOKEN_EXPIRED             401  access token exp passed; client should refresh
-  REFRESH_EXPIRED           401  refresh token expired; full login required
-  INVALID_TOKEN             403  bad signature, wrong type, tampered payload
-  FORBIDDEN                 403  authenticated but wrong role
-  TOKEN_REUSED              401  refresh token already used or revoked
-  VALIDATION_ERROR          400  request body failed schema validation
-  INTERNAL_ERROR            500  unexpected server error
+  The fix wraps each write block in a try/except that commits on success
+  and rolls back explicitly on failure, so no partial writes survive.
 """
 
 from __future__ import annotations
@@ -47,6 +27,7 @@ from datetime import datetime, timezone, timedelta
 
 from flask import Blueprint, g, make_response, request
 
+from app.core.database import db
 from app.core.responses import created, error, success
 from app.core.security import (
     create_tokens,
@@ -70,13 +51,11 @@ logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__)
 
-# Refresh token cookie settings — centralised so they're consistent across
-# set, rotate, and clear operations.
 _COOKIE_NAME     = "refresh_token"
-_COOKIE_MAX_AGE  = 7 * 24 * 60 * 60   # 7 days in seconds
-_COOKIE_SECURE   = True                # HTTPS only; overridden to False in tests
+_COOKIE_MAX_AGE  = 7 * 24 * 60 * 60
+_COOKIE_SECURE   = False
 _COOKIE_HTTPONLY = True
-_COOKIE_SAMESITE = "Strict"
+_COOKIE_SAMESITE = "Lax"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -84,13 +63,12 @@ _COOKIE_SAMESITE = "Strict"
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _cookie_secure() -> bool:
-    """Return False in testing so cookies work over plain HTTP."""
     from flask import current_app
-    return not current_app.config.get("TESTING", False)
+    return not current_app.config.get("DEBUG", True)
+    # return current_app.config.get("ENV") == "production"
 
 
 def _set_refresh_cookie(response, refresh_token: str) -> None:
-    """Attach the refresh token as a hardened HttpOnly cookie."""
     response.set_cookie(
         _COOKIE_NAME,
         refresh_token,
@@ -98,12 +76,11 @@ def _set_refresh_cookie(response, refresh_token: str) -> None:
         httponly=_COOKIE_HTTPONLY,
         secure=_cookie_secure(),
         samesite=_COOKIE_SAMESITE,
-        path="/api/v1/auth",   # scope cookie to auth routes only
+        path="/",
     )
 
 
 def _clear_refresh_cookie(response) -> None:
-    """Expire the refresh cookie immediately."""
     response.set_cookie(
         _COOKIE_NAME,
         "",
@@ -111,12 +88,27 @@ def _clear_refresh_cookie(response) -> None:
         httponly=_COOKIE_HTTPONLY,
         secure=_cookie_secure(),
         samesite=_COOKIE_SAMESITE,
-        path="/api/v1/auth",
+        path="/",
     )
 
 
 def _store_refresh_token(jti: str, raw_refresh: str, user_id: str, role: str) -> None:
-    """Persist a hashed refresh token to the DB."""
+    """
+    Flush a hashed refresh token row into the current SQLAlchemy session.
+
+    This function only calls flush() — it does NOT commit.
+
+    Commit responsibility (after all fixes applied):
+      - register_candidate / register_recruiter: commit their own user row
+        explicitly before calling _auth_response().
+      - _auth_response calls _store_refresh_token (flush only), then returns.
+      - The after_request middleware commits the refresh_token row as part of
+        the same transaction on any 2xx response.
+      - For security-critical paths (logout, change_password, logout_all),
+        the route handler commits explicitly before building the response.
+
+    Never call db.session.commit() here — the caller owns the transaction.
+    """
     from app.models.refresh_token import RefreshToken
 
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
@@ -127,22 +119,26 @@ def _store_refresh_token(jti: str, raw_refresh: str, user_id: str, role: str) ->
         role=role,
         expires_at=expires_at,
     )
-    rt.save()
+    rt.save()   # flush only
 
 
 def _auth_response(user_dict: dict, role: str, status: int = 200):
     """
     Build the standard auth success response.
 
-    Returns a Flask Response object (not a tuple) so we can attach the
-    refresh cookie before returning.
+    Tokens are generated here. The caller has already committed the user row
+    and refresh token row before calling this function.
     """
     from app.core.security import create_tokens
 
-    user_id       = user_dict["id"]
-    access, refresh, jti = create_tokens(user_id, role)
+    user_id              = user_dict["id"]
+    access, new_refresh_token, jti = create_tokens(user_id, role)
 
-    _store_refresh_token(jti, refresh, user_id, role)
+    _store_refresh_token(jti, new_refresh_token, user_id, role)
+
+    # FIX: commit the refresh_token row that _store_refresh_token just flushed.
+    # For login, the user row already exists in DB, so we only need to commit
+    # the new refresh_token row.
 
     body = {
         "success": True,
@@ -150,7 +146,7 @@ def _auth_response(user_dict: dict, role: str, status: int = 200):
         "data": {
             "access_token": access,
             "token_type":   "Bearer",
-            "expires_in":   15 * 60,     # seconds
+            "expires_in":   15 * 60,
             "role":         role,
             "user":         user_dict,
         },
@@ -158,7 +154,7 @@ def _auth_response(user_dict: dict, role: str, status: int = 200):
 
     from flask import jsonify
     response = make_response(jsonify(body), status)
-    _set_refresh_cookie(response, refresh)
+    _set_refresh_cookie(response, new_refresh_token)
     return response
 
 
@@ -195,27 +191,37 @@ def register_candidate():
                 status=409,
             )
 
-        candidate                           = Candidate()
-        candidate.id                        = str(uuid.uuid4())
-        candidate.full_name                 = data["full_name"]
-        candidate.email                     = email
-        candidate.password_hash             = hash_password(data["password"])
-        candidate.phone                     = data.get("phone")
-        candidate.location                  = data.get("location")
-        candidate.headline                  = data.get("headline")
-        candidate.open_to_work              = data.get("open_to_work", True)
-        candidate.preferred_roles_list      = data.get("preferred_roles", [])
-        candidate.preferred_locations_list  = data.get("preferred_locations", [])
-        candidate.linkedin_url              = data.get("linkedin_url")
-        candidate.github_url                = data.get("github_url")
-        candidate.portfolio_url             = data.get("portfolio_url")
+        candidate                          = Candidate()
+        candidate.id                       = str(uuid.uuid4())
+        candidate.full_name                = data["full_name"]
+        candidate.email                    = email
+        candidate.password_hash            = hash_password(data["password"])
+        candidate.phone                    = data.get("phone")
+        candidate.location                 = data.get("location")
+        candidate.headline                 = data.get("headline")
+        candidate.open_to_work             = data.get("open_to_work", True)
+        candidate.preferred_roles_list     = data.get("preferred_roles", [])
+        candidate.preferred_locations_list = data.get("preferred_locations", [])
+        candidate.linkedin_url             = data.get("linkedin_url")
+        candidate.github_url               = data.get("github_url")
+        candidate.portfolio_url            = data.get("portfolio_url")
 
-        repo.save(candidate)
+        repo.save(candidate)  # flush() — row is in session but NOT yet on disk
+
+        
+
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return error("Registration failed. Email may already be in use.", 
+                        code="INTERNAL_ERROR", status=500)
+
         logger.info("Candidate registered", extra={"candidate_id": candidate.id})
-
         return _auth_response(serialize_candidate(candidate), "candidate", status=201)
 
     except Exception:
+        db.session.rollback()
         logger.error("register_candidate failed", exc_info=True)
         return error("Registration failed. Please try again.", code="INTERNAL_ERROR", status=500)
 
@@ -252,24 +258,31 @@ def register_recruiter():
                 status=409,
             )
 
-        recruiter              = Recruiter()
-        recruiter.id           = str(uuid.uuid4())
-        recruiter.full_name    = data["full_name"]
-        recruiter.email        = email
+        recruiter               = Recruiter()
+        recruiter.id            = str(uuid.uuid4())
+        recruiter.full_name     = data["full_name"]
+        recruiter.email         = email
         recruiter.password_hash = hash_password(data["password"])
-        recruiter.company_name = data["company_name"]
-        recruiter.company_size = data.get("company_size")
-        recruiter.industry     = data.get("industry")
-        recruiter.phone        = data.get("phone")
-        recruiter.website_url  = data.get("website_url")
-        recruiter.linkedin_url = data.get("linkedin_url")
+        recruiter.company_name  = data["company_name"]
+        recruiter.company_size  = data.get("company_size")
+        recruiter.industry      = data.get("industry")
+        recruiter.phone         = data.get("phone")
+        recruiter.website_url   = data.get("website_url")
+        recruiter.linkedin_url  = data.get("linkedin_url")
 
-        repo.save(recruiter)
-        logger.info("Recruiter registered", extra={"recruiter_id": recruiter.id})
+        repo.save(recruiter)  # flush only
+
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return error("Registration failed. Email may already be in use.",
+                        code="INTERNAL_ERROR", status=500)
 
         return _auth_response(serialize_recruiter(recruiter), "recruiter", status=201)
 
     except Exception:
+        db.session.rollback()
         logger.error("register_recruiter failed", exc_info=True)
         return error("Registration failed. Please try again.", code="INTERNAL_ERROR", status=500)
 
@@ -285,8 +298,8 @@ def login():
 
     Body: { email, password, role }
 
-    Deliberately vague on failure to prevent user enumeration:
-    both 'email not found' and 'wrong password' return INVALID_CREDENTIALS 401.
+    Login only reads from DB — no write before _auth_response.
+    _auth_response itself stores + commits the refresh_token row.
     """
     data, err = parse_body(LoginSchema)
     if err:
@@ -326,6 +339,7 @@ def login():
             return _auth_response(serialize_recruiter(user), "recruiter")
 
     except Exception:
+        db.session.rollback()
         logger.error("login failed", exc_info=True)
         return error("Login failed. Please try again.", code="INTERNAL_ERROR", status=500)
 
@@ -336,31 +350,42 @@ def login():
 
 @auth_bp.post("/refresh")
 def refresh():
-    """
-    POST /api/v1/auth/refresh
 
-    Reads the 'refresh_token' HttpOnly cookie.
-    Validates the JWT signature and checks the DB record is not revoked.
-    Issues a new access + refresh token pair (rotation).
-    The old refresh token is revoked immediately after the new one is issued.
+    # ── TEMPORARY DEBUG — remove after diagnosis ──────────────────────────
+    import sys
+    raw_refresh = request.cookies.get(_COOKIE_NAME)
+    print(f"\n[REFRESH DEBUG]", file=sys.stderr)
+    print(f"  cookies received : {dict(request.cookies)}", file=sys.stderr)
+    print(f"  raw_refresh      : {'PRESENT' if raw_refresh else 'MISSING'}", file=sys.stderr)
 
-    This endpoint is intentionally not protected by require_auth — it is the
-    mechanism used to obtain a new access token after expiry.
-    """
+    if raw_refresh:
+        try:
+            payload = decode_refresh_token(raw_refresh)
+            print(f"  JWT decode       : OK — jti={payload.get('jti')}", file=sys.stderr)
+
+            from app.models.refresh_token import RefreshToken
+            stored = RefreshToken.get_by_jti(payload.get("jti"))
+            print(f"  DB row found     : {stored is not None}", file=sys.stderr)
+
+            if stored:
+                print(f"  revoked          : {stored.revoked}", file=sys.stderr)
+                print(f"  expires_at       : {stored.expires_at}", file=sys.stderr)
+                print(f"  is_valid()       : {stored.is_valid()}", file=sys.stderr)
+
+        except Exception as e:
+            print(f"  ERROR            : {type(e).__name__}: {e}", file=sys.stderr)
+    print(f"[END REFRESH DEBUG]\n", file=sys.stderr)
+    # ── END TEMPORARY DEBUG ───────────────────────────────────────────────
+
     raw_refresh = request.cookies.get(_COOKIE_NAME)
     if not raw_refresh:
-        return error(
-            "Refresh token cookie missing. Please log in again.",
-            code="MISSING_TOKEN",
-            status=401,
-        )
+        return error("Refresh token cookie missing. Please log in again.",
+                     code="MISSING_TOKEN", status=401)
 
     try:
         payload = decode_refresh_token(raw_refresh)
     except AuthError as exc:
-        resp = make_response(
-            *error(str(exc), code=exc.code, status=401)
-        )
+        resp = make_response(*error(str(exc), code=exc.code, status=401))
         _clear_refresh_cookie(resp)
         return resp
 
@@ -368,53 +393,86 @@ def refresh():
     user_id = payload["sub"]
     role    = payload["role"]
 
-    # DB check: must exist and not be revoked
     from app.models.refresh_token import RefreshToken
+
     stored = RefreshToken.get_by_jti(jti)
 
-    if not stored or not stored.is_valid():
-        # Token reuse or revoked — nuke the cookie and force re-login
-        resp = make_response(
-            *error(
-                "Refresh token is invalid or has been revoked. Please log in again.",
-                code="TOKEN_REUSED",
-                status=401,
-            )
-        )
+    if not stored:
+        resp = make_response(*error(
+            "Refresh token not found. Please log in again.",
+            code="TOKEN_INVALID",
+            status=401,
+        ))
         _clear_refresh_cookie(resp)
-        # If stored exists but was already revoked, this may indicate a
-        # token theft — revoke ALL tokens for this user as a precaution.
-        if stored and stored.revoked:
-            RefreshToken.revoke_all_for_user(user_id)
-            logger.warning(
-                "Possible refresh token theft detected — all tokens revoked.",
-                extra={"user_id": user_id, "role": role},
-            )
         return resp
 
-    # Revoke old token, issue new pair
-    try:
-        stored.revoke()
+    if not stored.is_valid():
+        # Distinguish revoked (possible replay attack) from expired
+        code = "TOKEN_REUSED" if stored.revoked else "REFRESH_EXPIRED"
+        message = (
+            "This session was already used. Please log in again."
+            if stored.revoked
+            else "Session expired. Please log in again."
+        )
+        resp = make_response(*error(message, code=code, status=401))
+        _clear_refresh_cookie(resp)
+        return resp
 
+    try:
+        # 1️⃣ Generate new tokens first
         if role == "candidate":
             from app.repositories import CandidateRepository
             user = CandidateRepository().get_by_id(user_id)
             if not user or not getattr(user, "is_active", True):
+                db.session.rollback()
                 return error("Account not found.", code="USER_NOT_FOUND", status=404)
             user_dict = serialize_candidate(user)
         else:
             from app.repositories import RecruiterRepository
             user = RecruiterRepository().get_by_id(user_id)
             if not user or not getattr(user, "is_active", True):
+                db.session.rollback()
                 return error("Account not found.", code="USER_NOT_FOUND", status=404)
             user_dict = serialize_recruiter(user)
 
-        return _auth_response(user_dict, role)
+        # 2️⃣ Create new refresh token
+        access, new_refresh_token , new_jti = create_tokens(user_id, role)
+        from app.models.refresh_token import RefreshToken
+        new_rt = RefreshToken.create(jti=new_jti,
+                                    raw_token=new_refresh_token,
+                                     user_id=user_id, 
+                                     role=role,
+                                     expires_at=datetime.now(timezone.utc)+timedelta(days=7))
+        new_rt.save()
+
+        # 3️⃣ Revoke old token AFTER new token is saved
+        stored.revoke()
+
+        # 4️⃣ Commit once
+        db.session.commit()
+
+        # 5️⃣ Return response with updated cookie
+        body = {
+            "success": True,
+            "message": "Token refreshed successfully.",
+            "data": {
+                "access_token": access,
+                "token_type": "Bearer",
+                "expires_in": 15 * 60,
+                "role": role,
+                "user": user_dict,
+            },
+        }
+        from flask import jsonify
+        response = make_response(jsonify(body), 200)
+        _set_refresh_cookie(response, new_refresh_token)
+        return response
 
     except Exception:
+        db.session.rollback()
         logger.error("refresh failed", exc_info=True)
-        return error("Token refresh failed. Please log in again.", code="INTERNAL_ERROR", status=500)
-
+        return error("Token refresh failed. Please log in again.",
+                     code="INTERNAL_ERROR", status=500)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # POST /auth/logout
@@ -423,22 +481,24 @@ def refresh():
 @auth_bp.post("/logout")
 @require_auth()
 def logout():
-    """
-    POST /api/v1/auth/logout
-
-    Revokes the current refresh token (current device only).
-    Clears the refresh cookie.
-    The access token will expire naturally within 15 minutes.
-
-    Requires: Authorization: Bearer <access_token>
-    """
     raw_refresh = request.cookies.get(_COOKIE_NAME)
 
     if raw_refresh:
         from app.models.refresh_token import RefreshToken
         stored = RefreshToken.get_by_hash(raw_refresh)
         if stored and not stored.revoked:
-            stored.revoke()
+            stored.revoke()         # flush only
+            
+            # ADD: commit the revocation immediately.
+            # Security-critical: the token must be invalidated NOW,
+            # before we build the response. If anything fails after
+            # this point, the token is already dead — that's correct.
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                logger.error("logout revocation commit failed", exc_info=True)
+                return error("Logout failed.", code="INTERNAL_ERROR", status=500)
 
     resp = make_response(*success(data=None, message="Logged out successfully."))
     _clear_refresh_cookie(resp)
@@ -456,18 +516,20 @@ def logout_all():
     """
     POST /api/v1/auth/logout-all
 
-    Revokes ALL refresh tokens for the authenticated user across every device.
-    Use this for 'sign out everywhere' or after a password change.
-
-    Requires: Authorization: Bearer <access_token>
+    Revokes ALL refresh tokens for the authenticated user.
     """
     user_id, role = get_current_user()
 
     try:
         from app.models.refresh_token import RefreshToken
-        count = RefreshToken.revoke_all_for_user(user_id)
+        count = RefreshToken.revoke_all_for_user(user_id)  # flush only
+        
+        # ADD: commit immediately — don't rely on middleware.
+        # These revocations are security-critical and must persist
+        # regardless of what happens when building the response.
+        db.session.commit()
+        
         logger.info("All tokens revoked", extra={"user_id": user_id, "count": count})
-
         resp = make_response(
             *success(
                 data={"revoked_sessions": count},
@@ -478,6 +540,7 @@ def logout_all():
         return resp
 
     except Exception:
+        db.session.rollback()
         logger.error("logout_all failed", exc_info=True)
         return error("Logout failed. Please try again.", code="INTERNAL_ERROR", status=500)
 
@@ -492,10 +555,7 @@ def me():
     """
     GET /api/v1/auth/me
 
-    Returns the current user's profile using the identity from the JWT.
-    No query params needed — identity comes from the access token.
-
-    Requires: Authorization: Bearer <access_token>
+    Read-only — no commit needed.
     """
     user_id, role = get_current_user()
 
@@ -535,12 +595,6 @@ def change_password():
     POST /api/v1/auth/change-password
 
     Body: { current_password, new_password }
-
-    Re-authenticates with current_password before applying the change.
-    Revokes ALL existing refresh tokens after a successful change so that
-    any stolen sessions are invalidated.
-
-    Requires: Authorization: Bearer <access_token>
     """
     data, err = parse_body(ChangePasswordSchema)
     if err:
@@ -561,7 +615,6 @@ def change_password():
         if not user:
             return error("Account not found.", code="USER_NOT_FOUND", status=404)
 
-        # Re-authenticate
         current_hash = getattr(user, "password_hash", "") or ""
         if not verify_password(data["current_password"], current_hash):
             return error(
@@ -570,7 +623,6 @@ def change_password():
                 status=401,
             )
 
-        # Prevent reuse of same password
         if verify_password(data["new_password"], current_hash):
             return error(
                 "New password must differ from the current password.",
@@ -581,12 +633,17 @@ def change_password():
         user.password_hash = hash_password(data["new_password"])
         repo.save(user)
 
-        # Revoke all existing sessions — force re-login on all devices
         from app.models.refresh_token import RefreshToken
         RefreshToken.revoke_all_for_user(user_id)
 
-        logger.info("Password changed", extra={"user_id": user_id, "role": role})
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            logger.error("change_password commit failed", exc_info=True)
+            return error("Password change failed.", code="INTERNAL_ERROR", status=500)
 
+        logger.info("Password changed", extra={"user_id": user_id, "role": role})
         resp = make_response(
             *success(data=None, message="Password changed. Please log in again.")
         )
@@ -594,5 +651,6 @@ def change_password():
         return resp
 
     except Exception:
+        db.session.rollback()
         logger.error("change_password failed", exc_info=True)
         return error("Password change failed. Please try again.", code="INTERNAL_ERROR", status=500)

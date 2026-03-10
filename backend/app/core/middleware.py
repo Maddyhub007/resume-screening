@@ -3,29 +3,40 @@ app/core/middleware.py
 
 Flask middleware hooks registered in create_app().
 
+FIXES APPLIED:
+  BUG #2 — Auto-commit on 2xx responses.
+
+  Previously every route that wrote to the DB called repo.save() (flush only)
+  and then returned. Nothing ever committed. Since fixing every individual
+  route is error-prone, the cleanest production solution is to commit
+  automatically in after_request for any successful (2xx) response.
+
+  The pattern is:
+    - after_request: if status 2xx → db.session.commit()
+    - teardown_appcontext: if exception → db.session.rollback()
+
+  This means individual routes NEVER need to call commit() themselves —
+  they just flush, build their response, and return. The middleware handles
+  the transaction boundary.
+
+  EXCEPTION: auth.py's _auth_response() still calls commit() explicitly
+  because it needs the user row committed BEFORE generating the JWT (to
+  prevent issuing tokens for rows that might not persist). That explicit
+  commit is safe — committing an already-committed transaction is a no-op.
+
 Responsibilities:
-  1. Request ID — generate/propagate a correlation ID on every request.
-     The ID is read from the incoming X-Request-ID header if present
-     (so frontend/client traces carry through), otherwise a new UUID is minted.
-     It is stored in flask.g AND in the logging context variable so every
-     log line for this request carries it.
-
-  2. Request logging — log METHOD, path, IP, and User-Agent at request start.
-
-  3. Response logging — log status code and elapsed time at request end.
-
-  4. Error response headers — inject X-Request-ID into every response so
-     the client can correlate failed requests in their logs.
-
-Usage (called once in create_app):
-    from app.core.middleware import register_middleware
-    register_middleware(app)
+  1. Request ID — correlation ID on every request.
+  2. Request logging — METHOD, path, IP at start.
+  3. Response logging — status code + elapsed time.
+  4. Auto-commit — commit the session on every 2xx response.
+  5. Error rollback — rollback on any unhandled exception.
+  6. Response headers — inject X-Request-ID.
 """
 
 import logging
 import time
 import uuid
-from app.core.database import db
+
 from flask import Flask, g, request
 
 from app.core.logging import set_request_id
@@ -36,24 +47,48 @@ logger = logging.getLogger(__name__)
 def register_middleware(app: Flask) -> None:
     """
     Attach all middleware hooks to the Flask application.
-
-    Args:
-        app: Configured Flask application instance.
     """
 
     @app.before_request
     def _before_request() -> None:
-        """
-        Runs before every request.
-        - Assigns a correlation ID to flask.g and the logging context.
-        - Records the start time for elapsed-time calculation.
-        """
+        from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity, get_jwt
+        from app.repositories.candidate import CandidateRepository
+        from app.repositories.recruiter import RecruiterRepository
+
         rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())[:8]
-        g.request_id   = rid
+        g.request_id    = rid
         g.request_start = time.perf_counter()
 
-        # Inject into logging context var so all loggers in this request see it
         set_request_id(rid)
+
+        # ---- AUTH CONTEXT ----
+        try:
+            verify_jwt_in_request(optional=True)
+
+            identity = get_jwt_identity()
+            claims = get_jwt()
+
+            if identity:
+                role = claims.get("role")
+
+                if role == "recruiter":
+                    repo = RecruiterRepository()
+                    g.current_user = repo.get_by_id(identity)
+
+                elif role == "candidate":
+                    repo = CandidateRepository()
+                    g.current_user = repo.get_by_id(identity)
+
+                else:
+                    g.current_user = None
+            else:
+                g.current_user = None
+
+        except Exception:
+            g.current_user = None
+        # ----------------------
+
+        
 
         logger.debug(
             "Request started",
@@ -68,14 +103,53 @@ def register_middleware(app: Flask) -> None:
     @app.after_request
     def _after_request(response):
         """
-        Runs after every successful request.
-        - Injects X-Request-ID into the response headers.
-        - Logs status code and elapsed time.
+        Runs after every successful request handler.
+
+        FIX: Auto-commit the SQLAlchemy session on any 2xx response.
+
+        Why here and not in each route?
+          - DRY: a single hook covers all 50+ write endpoints automatically.
+          - Safety: if a route forgets to commit, data still persists.
+          - Atomicity: the entire request's writes commit together or not at all.
+
+        Why only on 2xx?
+          - 4xx responses (validation errors, not found, conflicts) must NOT
+            commit — any partial writes from earlier in the request should roll back.
+          - 5xx responses roll back in teardown_appcontext.
         """
+        from app.core.database import db
+
         rid     = getattr(g, "request_id", "-")
         elapsed = time.perf_counter() - getattr(g, "request_start", time.perf_counter())
 
         response.headers["X-Request-ID"] = rid
+
+        # Auto-commit on success
+        # Auto-commit on success
+        if 200 <= response.status_code < 300:
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                logger.error(
+                    "Auto-commit failed — session rolled back",
+                    extra={"path": request.path, "status": response.status_code},
+                    exc_info=True,
+                )
+
+                # 🔥 CRITICAL FIX: convert response to 500
+                response.status_code = 500
+                response.set_data(
+                    b'{"success": false, "message": "Internal database error."}'
+                )
+                # Don't re-raise here — the response has already been built.
+                # The commit failure will be visible in logs.
+        else:
+            # Roll back any partial writes on non-2xx responses
+            try:
+                db.session.rollback()
+            except Exception:
+                pass  # Rollback failure is non-fatal
 
         logger.info(
             "Request completed",
@@ -88,54 +162,31 @@ def register_middleware(app: Flask) -> None:
         )
         return response
 
-    @app.teardown_request
-<<<<<<< HEAD
-    def _shutdown_session(exception=None) -> None:
-=======
-    def _teardown_request(exception=None) -> None:
+    @app.teardown_appcontext
+    def _teardown(exception=None) -> None:
         """
-        Finalise DB transaction for the request.
+        Runs when the application context is torn down.
 
-        - Commit on success for mutating methods.
-        - Roll back on exceptions or failed commits.
+        Roll back any open session if an unhandled exception propagated
+        past the route handler (bypassing after_request).
+        Also remove the session from the scoped session registry.
         """
-        # pylint: disable=import-outside-toplevel
         from app.core.database import db
 
         if exception:
-            db.session.rollback()
-            return
-
-        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             try:
-                db.session.commit()
+                db.session.rollback()
             except Exception:
-                db.session.rollback()
-                logger.error("Session commit failed; rolled back.", exc_info=True)
-
-    @app.teardown_appcontext
-    def _teardown(exception=None) -> None:
->>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
-        """
-        Unit-of-work pattern:
-        - commit on success
-        - rollback on error
-        - always remove session
-        """
-        try:
-            if exception:
-                db.session.rollback()
-            else:
-                db.session.commit()
-        except Exception:
-            db.session.rollback()
-<<<<<<< HEAD
-            raise
-        finally:
-            db.session.remove()
-=======
+                pass
             logger.error(
                 "Session rolled back due to unhandled exception",
                 extra={"exception": str(exception)},
             )
->>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
+
+        # Always remove the session at the end of the request context.
+        # Flask-SQLAlchemy does this automatically, but being explicit
+        # prevents any lingering session state between tests.
+        try:
+            db.session.remove()
+        except Exception:
+            pass

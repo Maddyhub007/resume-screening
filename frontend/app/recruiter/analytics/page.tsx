@@ -164,7 +164,7 @@ export default function AnalyticsPage() {
             <div className="h-60 flex items-center justify-center text-text-muted text-sm">No scores yet.</div>
           ) : (
             <div className="flex items-center gap-6">
-              <ResponsiveContainer width={180} height={200}>
+              <ResponsiveContainer width="100%" height={200}>
                 <PieChart>
                   <Pie
                     data={scoreDistChartData}

@@ -1,14 +1,14 @@
-
 """
 app/models/candidate.py
 
 Candidate profile model.
 
-Changes from Phase 1:
-  - Composite index on (email, is_active) for active-candidate lookups.
-  - Index on (location, open_to_work) for filtered dashboard queries.
-  - Explicit column ordering for readability.
-  - to_dict_list() — compact view for paginated list endpoints.
+JWT Auth changes (Phase 7):
+  - password_hash: scrypt-hashed password stored by /auth/register/candidate.
+    Nullable so existing rows migrate safely — old accounts simply cannot log
+    in until a password is set.
+
+All other fields, indexes, and relationships are unchanged from Phase 2.
 
 Relationships:
   - resumes:      one-to-many Resume     (cascade: all, delete-orphan)
@@ -26,7 +26,7 @@ from app.core.database import BaseModel, db
 from app.models.mixins import SoftDeleteMixin
 
 
-class Candidate(BaseModel , SoftDeleteMixin):
+class Candidate(BaseModel, SoftDeleteMixin):
     """
     Job-seeker profile.
 
@@ -36,18 +36,28 @@ class Candidate(BaseModel , SoftDeleteMixin):
 
     __tablename__ = "candidates"
 
-    # ── Identity ─────────────────────────────────────────────────────────────
+    # ── Identity ──────────────────────────────────────────────────────────────
     full_name: Mapped[str] = mapped_column(
         String(200), nullable=False
     )
     email: Mapped[str] = mapped_column(
         String(254), unique=True, nullable=False, index=True
     )
-    phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    phone:    Mapped[str | None] = mapped_column(String(30),  nullable=True)
     location: Mapped[str | None] = mapped_column(String(200), nullable=True)
     headline: Mapped[str | None] = mapped_column(
         String(300), nullable=True,
         comment="e.g. 'Senior Python Developer | 5yrs exp | Open to remote'"
+    )
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    # scrypt hash from Werkzeug — NEVER store plain text here.
+    # Nullable so rows created before Phase 7 migrate without error.
+    # Accounts with password_hash=NULL cannot log in until a password is set.
+    password_hash: Mapped[str | None] = mapped_column(
+        String(256),
+        nullable=True,
+        comment="Werkzeug scrypt hash. NULL = account predates JWT auth.",
     )
 
     # ── Social profiles ───────────────────────────────────────────────────────
@@ -56,7 +66,7 @@ class Candidate(BaseModel , SoftDeleteMixin):
     portfolio_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # ── Preferences (JSON-serialised lists) ───────────────────────────────────
-    preferred_roles:     Mapped[str | None] = mapped_column(
+    preferred_roles: Mapped[str | None] = mapped_column(
         Text, nullable=True,
         comment='JSON list e.g. ["Backend Engineer","ML Engineer"]'
     )
@@ -66,15 +76,15 @@ class Candidate(BaseModel , SoftDeleteMixin):
     )
 
     # ── Status flags ──────────────────────────────────────────────────────────
-    open_to_work: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_active:    Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    open_to_work: Mapped[bool] = mapped_column(Boolean, default=True,  nullable=False)
+    is_active:    Mapped[bool] = mapped_column(Boolean, default=True,  nullable=False)
 
     # ── Composite indexes ─────────────────────────────────────────────────────
     __table_args__ = (
         # Active candidates open to work — used by recruiter search
         Index("ix_candidates_open_active", "open_to_work", "is_active"),
         # Location filter for recruiter candidate search
-        Index("ix_candidates_location",    "location"),
+        Index("ix_candidates_location", "location"),
     )
 
     # ── Relationships ─────────────────────────────────────────────────────────
@@ -96,7 +106,6 @@ class Candidate(BaseModel , SoftDeleteMixin):
 
     @property
     def preferred_roles_list(self) -> list[str]:
-        """Deserialised preferred job roles."""
         return _safe_json_list(self.preferred_roles)
 
     @preferred_roles_list.setter
@@ -105,7 +114,6 @@ class Candidate(BaseModel , SoftDeleteMixin):
 
     @property
     def preferred_locations_list(self) -> list[str]:
-        """Deserialised preferred work locations."""
         return _safe_json_list(self.preferred_locations)
 
     @preferred_locations_list.setter
@@ -115,8 +123,10 @@ class Candidate(BaseModel , SoftDeleteMixin):
     # ── Serialisation ─────────────────────────────────────────────────────────
 
     def to_dict(self, exclude: set[str] | None = None) -> dict[str, Any]:
-        """Full record — expands JSON list columns."""
-        d = super().to_dict(exclude=exclude)
+        """Full record — expands JSON list columns. Never includes password_hash."""
+        # Always exclude password_hash from serialisation
+        _exclude = (exclude or set()) | {"password_hash"}
+        d = super().to_dict(exclude=_exclude)
         d["preferred_roles"]     = self.preferred_roles_list
         d["preferred_locations"] = self.preferred_locations_list
         return d
@@ -134,7 +144,7 @@ class Candidate(BaseModel , SoftDeleteMixin):
         }
 
     def to_dict_public(self) -> dict[str, Any]:
-        """External-safe view — omits internal flags."""
+        """External-safe view — omits internal flags and auth fields."""
         return self.to_dict(exclude={"is_active"})
 
 

@@ -31,6 +31,7 @@ Usage (in tests):
 import logging
 from dataclasses import dataclass
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,6 +53,7 @@ class Services:
     job_recommendations:  object
     candidate_ranking:    object
     recruiter_analytics:  object
+    resume_builder:       object
 
 
 class ServiceFactory:
@@ -89,6 +91,9 @@ class ServiceFactory:
         from app.services.job_recommendation_service import JobRecommendationService
         from app.services.candidate_ranking_service import CandidateRankingService
         from app.services.recruiter_analytics_service import RecruiterAnalyticsService
+        
+        from app.repositories.resume_draft import ResumeDraftRepository
+        from app.services.resume_builder_agent_service import ResumeBuilderAgentService
 
         # Config helpers — support both dict and object access
         def cfg(key, default=None):
@@ -187,6 +192,19 @@ class ServiceFactory:
             ats_score_repo=repos["ats_score"],
         )
 
+        # Resume Builder Service
+        resume_builder_svc = ResumeBuilderAgentService(
+            groq_service=groq_svc,
+            ats_scorer=ats_scorer,
+            keyword_matcher=keyword_matcher,
+            candidate_repo=repos["candidate"],
+            resume_repo=repos["resume"],
+            job_repo=repos["job"],
+            draft_repo=ResumeDraftRepository(),
+            target_score=cfg("BUILDER_TARGET_SCORE", 0.75),
+	    )
+
+
         logger.info(
             "Services initialised. Groq=%s, Semantic=%s",
             groq_svc.available, semantic_matcher.available
@@ -208,6 +226,7 @@ class ServiceFactory:
             job_recommendations=job_rec_svc,
             candidate_ranking=candidate_rank_svc,
             recruiter_analytics=recruiter_analytics_svc,
+            resume_builder=resume_builder_svc
         )
 
 

@@ -15,7 +15,7 @@ interface AtsScoreCardProps {
 }
 
 export function AtsScoreCard({ score, mode = "full", className = "" }: AtsScoreCardProps) {
-  const colors = getScoreColors(score.score_label);
+  const colors = getScoreColors(score.score_label) ?? { hex: "#ccc", bg: "bg-gray-700", text: "text-white", border: "border-gray-600" };
   const [openPriority, setOpenPriority] = useState<string | null>("high");
   const [animatedScore, setAnimatedScore] = useState(0);
   const animRef = useRef<number | null>(null);
@@ -51,13 +51,13 @@ export function AtsScoreCard({ score, mode = "full", className = "" }: AtsScoreC
               <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="8" />
               <motion.circle
                 cx="60" cy="60" r="54" fill="none"
-                stroke={colors.hex} strokeWidth="8"
+                stroke={colors?.hex ?? "#ccc"} strokeWidth="8"
                 strokeLinecap="round"
                 strokeDasharray={circumference}
                 initial={{ strokeDashoffset: circumference }}
                 animate={{ strokeDashoffset: offset }}
                 transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
-                style={{ filter: `drop-shadow(0 0 8px ${colors.hex}80)` }}
+                style={{ filter: `drop-shadow(0 0 8px ${colors?.hex ?? "#ccc"}80)` }}
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -182,7 +182,15 @@ function ScoreBar({ label, value, hex, disabled }: { label: string; value: numbe
   );
 }
 
-function SkillColumn({ title, skills, type }: { title: string; skills: string[]; type: "matched" | "missing" | "extra" }) {
+function SkillColumn({
+  title,
+  skills = [],
+  type,
+}: {
+  title: string;
+  skills?: string[];
+  type: "matched" | "missing" | "extra";
+}) {
   const colors = { matched: "text-emerald-400", missing: "text-red-400", extra: "text-text-muted" };
   const icons = {
     matched: <CheckCircle2 className="w-3 h-3 text-emerald-400" />,

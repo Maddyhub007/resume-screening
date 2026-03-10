@@ -117,10 +117,11 @@ def get_candidate(candidate_id: str):
             )
 
         data = serialize_candidate(candidate)
-        active_resumes = [
-            r for r in (getattr(candidate, "resumes", []) or [])
-            if not getattr(r, "is_deleted", False)
-        ]
+        resumes = candidate.resumes
+        if not isinstance(resumes, list):
+            resumes = [resumes] if resumes else []
+
+        active_resumes = [r for r in resumes if r.is_active]
         data["resumes"] = [serialize_resume(r) for r in active_resumes]
 
         return success(data=data, message="Candidate retrieved.")
@@ -301,7 +302,7 @@ def upload_resume(candidate_id: str):
     except OSError:
         logger.error("Failed to save resume file", exc_info=True)
         return error("Failed to save uploaded file.", code="UPLOAD_FAILED", status=500)
-
+ 
     try:
         from app.models.resume import Resume
         from app.models.enums import ParseStatus
@@ -310,10 +311,10 @@ def upload_resume(candidate_id: str):
         resume              = Resume()
         resume.id           = resume_id
         resume.candidate_id = candidate_id
-        resume.file_name    = file.filename
+        resume.filename    = file.filename
         resume.file_path    = file_path
-        resume.file_size_bytes = file_bytes
-        resume.content_type = file.content_type or f"application/{ext.lstrip('.')}"
+        resume.file_size_kb = round(file_bytes / 1024)
+        resume.file_type    = ext.lstrip(".")
         resume.parse_status = ParseStatus.PENDING
         resume.is_active    = True
 
@@ -333,7 +334,6 @@ def upload_resume(candidate_id: str):
 
         if parse_result.success:
             from app.models.enums import ParseStatus
-<<<<<<< HEAD
             resume.parse_status           = ParseStatus.SUCCESS
             resume.skills_list            = parse_result.skills
             resume.education_list         = parse_result.education
@@ -342,20 +342,8 @@ def upload_resume(candidate_id: str):
             resume.projects_list          = parse_result.projects
             resume.summary_text           = parse_result.summary_text
             resume.raw_text               = parse_result.raw_text
-            resume.total_experience_years = parse_result.experience_years
+            resume.total_experience_years = parse_result.total_experience_years
             resume.skill_count            = len(parse_result.skills)
-=======
-            resume.parse_status             = ParseStatus.SUCCESS
-            resume.skills_list              = parse_result.skills
-            resume.education_list           = parse_result.education
-            resume.experience_list          = parse_result.experience
-            resume.certifications_list      = parse_result.certifications
-            resume.projects_list            = parse_result.projects
-            resume.summary_text             = parse_result.summary_text
-            resume.raw_text                 = parse_result.raw_text
-            resume.total_experience_years   = parse_result.total_experience_years
-            resume.skill_count              = len(parse_result.skills)
->>>>>>> 72a03cbc4dd33a32103e5fd61638c5617d76d049
             repo.save(resume)
         else:
             from app.models.enums import ParseStatus
@@ -369,6 +357,14 @@ def upload_resume(candidate_id: str):
         hasattr(resume, "parse_status")
         and resume.parse_status.value == "success"
     )
+
+    repo = ResumeRepository()
+
+    repo.deactivate_previous(candidate_id)
+
+    resume.is_active = True
+    repo.save(resume)
+
     return created(
         data=serialize_resume(resume),
         message="Resume uploaded and parsed." if parsed_ok else "Resume uploaded. Parsing in progress.",
