@@ -30,9 +30,13 @@ Usage (in tests):
 
 import logging
 from dataclasses import dataclass
+import os
 
+# Suppress HuggingFace symlink warning on Windows
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -53,7 +57,6 @@ class Services:
     job_recommendations:  object
     candidate_ranking:    object
     recruiter_analytics:  object
-    resume_builder:       object
 
 
 class ServiceFactory:
@@ -91,9 +94,6 @@ class ServiceFactory:
         from app.services.job_recommendation_service import JobRecommendationService
         from app.services.candidate_ranking_service import CandidateRankingService
         from app.services.recruiter_analytics_service import RecruiterAnalyticsService
-        
-        from app.repositories.resume_draft import ResumeDraftRepository
-        from app.services.resume_builder_agent_service import ResumeBuilderAgentService
 
         # Config helpers — support both dict and object access
         def cfg(key, default=None):
@@ -106,6 +106,9 @@ class ServiceFactory:
             model_name=cfg("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
             cache_dir=cfg("EMBEDDING_CACHE_DIR", ".cache/embeddings"),
         )
+        embedding_svc._cache._capacity = cfg("EMBEDDING_CACHE_SIZE", 512)
+
+        embedding_svc._ensure_loaded()
 
         groq_svc = GroqService(
             api_key=cfg("GROQ_API_KEY", ""),
@@ -154,7 +157,9 @@ class ServiceFactory:
             section_quality_scorer=section_quality_scorer,
             explainability_engine=explainability_engine,
             ats_score_repo=repos["ats_score"],
-            weights=weights,
+            weights=cfg("ATS_SCORE_WEIGHTS", None),
+            parallel_scoring=cfg("ATS_PARALLEL_SCORING", True),       # [SC1]
+            scoring_timeout_seconds=cfg("ATS_SCORING_TIMEOUT", 10.0), # [SC1]
             threshold_excellent=cfg("ATS_SCORE_THRESHOLD_EXCELLENT", 0.80),
             threshold_good=cfg("ATS_SCORE_THRESHOLD_GOOD",      0.65),
             threshold_fair=cfg("ATS_SCORE_THRESHOLD_FAIR",      0.50),
@@ -192,17 +197,6 @@ class ServiceFactory:
             ats_score_repo=repos["ats_score"],
         )
 
-        # Resume Builder Service
-        resume_builder_svc = ResumeBuilderAgentService(
-            groq_service=groq_svc,
-            ats_scorer=ats_scorer,
-            keyword_matcher=keyword_matcher,
-            candidate_repo=repos["candidate"],
-            resume_repo=repos["resume"],
-            job_repo=repos["job"],
-            draft_repo=ResumeDraftRepository(),
-            target_score=cfg("BUILDER_TARGET_SCORE", 0.75),
-	    )
 
 
         logger.info(
@@ -226,7 +220,6 @@ class ServiceFactory:
             job_recommendations=job_rec_svc,
             candidate_ranking=candidate_rank_svc,
             recruiter_analytics=recruiter_analytics_svc,
-            resume_builder=resume_builder_svc
         )
 
 

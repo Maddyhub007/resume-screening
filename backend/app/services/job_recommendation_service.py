@@ -89,6 +89,7 @@ class JobRecommendationService:
         min_score: float = 0.0,
         rescore_new: bool = True,
         use_llm: bool = False,  # LLM off by default for batch operations
+        status_filter: Optional[str] = None,
     ) -> list[JobRecommendation]:
         """
         Return top-N job recommendations for a resume.
@@ -109,7 +110,7 @@ class JobRecommendationService:
         try:
             return self._run(
                 resume, limit, location_filter, job_type_filter,
-                min_score, rescore_new, use_llm
+                min_score, rescore_new, use_llm, status_filter,
             )
         except Exception as exc:
             logger.exception(
@@ -126,6 +127,7 @@ class JobRecommendationService:
         min_score: float,
         rescore_new: bool,
         use_llm: bool,
+        status_filter: Optional[str] = None
     ) -> list[JobRecommendation]:
         from app.models.enums import JobStatus
 
@@ -181,8 +183,12 @@ class JobRecommendationService:
             job = jobs_by_id.get(score_record.job_id)
             if not job:
                 continue
-            if job.status != JobStatus.ACTIVE:
-                continue
+            if status_filter:
+                if job.status != status_filter:
+                    continue
+            else:
+                if job.status != JobStatus.ACTIVE:
+                    continue
             if score_record.final_score < min_score:
                 continue
             if location_filter and location_filter.lower() not in job.location.lower():

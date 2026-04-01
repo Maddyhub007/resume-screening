@@ -1,7 +1,7 @@
 "use client";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, queryKeys, getFriendlyError } from "@/lib/api/client";
+import { api, queryKeys, getFriendlyError, getClientToken } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/store/authStore";
 import { EmptyState, PaginationBar, TableSkeleton } from "@/components/shared";
 import { formatRelativeDate } from "@/lib/utils/formatters";
@@ -16,7 +16,7 @@ export default function RecruiterJobsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const { userId } = useAuthStore();
+  const { userId, userName, role, isRefreshing } = useAuthStore();
 
   const page = Number(searchParams.get("page") ?? 1);
   const status = searchParams.get("status") ?? "";
@@ -29,10 +29,15 @@ export default function RecruiterJobsPage() {
     router.push(`?${params}`);
   }, [searchParams, router]);
 
-  const { data, isLoading } = useQuery({
-    queryKey: queryKeys.recruiterJobs(userId!, status),
-    queryFn: () => api.getRecruiterJobs(userId!, { status: status || undefined, page, limit: 20 }),
-    enabled: !!userId,
+
+  const { data: jobsData, isLoading } = useQuery({
+    queryKey: queryKeys.recruiterJobs(userId!, status || undefined),
+    queryFn: () => api.getRecruiterJobs(userId!, {
+      status: status || undefined,
+      page,
+      limit: 20,
+    }),
+    enabled: !!userId && role === "recruiter" && !isRefreshing && !!getClientToken(),
   });
 
   const enhanceMutation = useMutation({
@@ -53,7 +58,7 @@ export default function RecruiterJobsPage() {
     onError: (err) => toast.error(getFriendlyError(err)),
   });
 
-  const jobs = data?.data ?? [];
+  const jobs = jobsData?.data ?? [];
 
   const statusColors: Record<string, string> = {
     active: "badge-excellent", draft: "badge-neutral", paused: "badge-fair", closed: "badge-weak",
@@ -141,7 +146,7 @@ export default function RecruiterJobsPage() {
         </div>
       )}
 
-      {data?.meta && <PaginationBar meta={data.meta} />}
+      {jobsData?.meta && <PaginationBar meta={jobsData.meta} />}
     </div>
   );
 }

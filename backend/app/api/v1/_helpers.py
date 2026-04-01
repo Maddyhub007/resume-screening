@@ -172,8 +172,8 @@ def serialize_resume(r) -> dict:
     return {
         "id":                    _safe(r, "id"),
         "candidate_id":          _safe(r, "candidate_id"),
-        "filename":             _safe(r, "filename") or _safe(r, "file_name"),
-        "file_size_bytes":       _safe(r, "file_size_bytes"),
+        "file_name":             _safe(r, "filename") or _safe(r, "file_name"),
+        "file_size_bytes":       (_safe(r, "file_size_kb") or 0) * 1024,
         "content_type":          _safe(r, "content_type"),
         "parse_status":          parse_status.value if hasattr(parse_status, "value") else parse_status,
         "parse_error_msg":       _safe(r, "parse_error_msg"),
@@ -251,6 +251,8 @@ def serialize_application(a) -> dict:
         "job":              job_data,
         "candidate":        candidate_data,
         "ats_score":        score_data,
+
+        "improvement_plan": _parse_json_field(_safe(a, "improvement_plan")),
     }
 
 
@@ -290,5 +292,15 @@ def _ts(obj: Any, attr: str) -> str | None:
     try:
         val = getattr(obj, attr, None)
         return val.isoformat() if val else None
+    except Exception:
+        return None
+
+
+def _parse_json_field(value):
+    if not value:
+        return None
+    import json
+    try:
+        return json.loads(value)
     except Exception:
         return None

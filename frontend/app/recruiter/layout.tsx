@@ -18,7 +18,7 @@ const NAV = [
 export default function RecruiterLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { role, userId, userName } = useAuthStore();
+  const { role, userId, userName, isRefreshing } = useAuthStore();
   const { logout: handleLogout } = useLogout();
 
   useEffect(() => {
@@ -34,7 +34,7 @@ export default function RecruiterLayout({ children }: { children: React.ReactNod
 
 
 
-  if (!userId) return null;
+  if (!userId || role !== "recruiter" || isRefreshing) return null;
 
   return (
     <div className="flex min-h-screen bg-charcoal-950">

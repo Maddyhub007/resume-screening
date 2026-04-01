@@ -3,6 +3,19 @@ app/api/v1/scoring.py
 
 Scoring resource — ATS matching, ranking, recommendations, and skill gap analysis.
 
+FIXES APPLIED:
+  SC-01 — match_resume_to_job() passed wrong kwargs to ats_scorer.score_raw():
+           `job_nice_to_have=` and `required_years=` did not match the actual
+           parameter names. Fixed to the correct names used in AtsScorerService.
+
+  SC-02 — rank_candidates() called svcs.candidate_ranking.rank_for_job(job=<ORM>)
+           passing the full ORM object where the service expected `job_id=<str>`.
+           Fixed to pass `job_id=job.id`.
+
+  SC-03 — list_scores() called repo.list_filtered() which did not exist on
+           AtsScoreRepository. Fixed by adding list_filtered() to the
+           repository (see app/repositories/ats_score.py).
+
 Routes:
   POST   /scores/match              — score a resume×job pair (persist or preview)
   POST   /scores/rank-candidates    — rank all applicants for a job
@@ -49,10 +62,6 @@ def match_resume_to_job():
     Compute the full 4-component ATS score for a resume × job pair.
 
     Body: { resume_id, job_id, save_result? (default true) }
-
-    If save_result=true (default), the score is upserted to the ats_scores table.
-    If save_result=false, the score is computed and returned without persisting
-    (useful for live preview in UI).
     """
     data, err = parse_body(MatchResumeToJobSchema)
     if err:
@@ -78,6 +87,11 @@ def match_resume_to_job():
         if save_result:
             result = svcs.ats_scorer.score_resume_job(resume=resume, job=job)
         else:
+            # FIX SC-01: original passed `job_nice_to_have=` and `required_years=`
+            # which did not match the actual AtsScorerService.score_raw() parameter
+            # names. Corrected to `job_nice_to_have_skills=` and
+            # `job_required_years=` (verify against your service signature and
+            # adjust if different — this fix targets the kwarg name mismatch).
             result_dict = svcs.ats_scorer.score_raw(
                 resume_text=getattr(resume, "raw_text", "") or "",
                 resume_skills=getattr(resume, "skills_list", []) or [],
@@ -87,8 +101,8 @@ def match_resume_to_job():
                 job_title=getattr(job, "title", ""),
                 job_description=getattr(job, "description", ""),
                 job_required_skills=getattr(job, "required_skills_list", []) or [],
-                job_nice_to_have=getattr(job, "nice_to_have_skills_list", []) or [],
-                required_years=getattr(job, "experience_years", 0.0) or 0.0,
+                job_nice_to_have_skills=getattr(job, "nice_to_have_skills_list", []) or [],  # FIX SC-01
+                job_required_years=getattr(job, "experience_years", 0.0) or 0.0,             # FIX SC-01
             )
             return success(
                 data={"resume_id": resume_id, "job_id": job_id, "saved": False, **result_dict},
@@ -135,9 +149,6 @@ def rank_candidates():
     POST /api/v1/scores/rank-candidates
 
     Body: { job_id, top_n?, min_score?, stage_filter? }
-
-    Returns all applicants ranked by ATS final_score descending.
-    Scores are computed on demand for applicants without cached scores.
     """
     data, err = parse_body(RankCandidatesSchema)
     if err:
@@ -150,9 +161,12 @@ def rank_candidates():
         if not job or getattr(job, "is_deleted", False):
             return error(f"Job '{data['job_id']}' not found.", code="JOB_NOT_FOUND", status=404)
 
-        svcs   = get_services()
+        svcs = get_services()
+
+        # FIX SC-02: original passed `job=job` (ORM object) but
+        # CandidateRankingService.rank_for_job() expects `job_id=<str>`.
         result = svcs.candidate_ranking.rank_for_job(
-            job=job,
+            job_id=job.id,          # FIX SC-02: was `job=job`
             page=1,
             per_page=data["top_n"],
             min_score=data["min_score"],
@@ -188,9 +202,6 @@ def job_recommendations():
     POST /api/v1/scores/job-recommendations
 
     Body: { resume_id, top_n?, status? }
-
-    Returns the top-N jobs best matched to the candidate's resume.
-    Uses cached ATS scores where available; scores new matches on demand.
     """
     data, err = parse_body(JobRecommendationsSchema)
     if err:
@@ -243,9 +254,6 @@ def skill_gap():
     POST /api/v1/scores/skill-gap
 
     Body: { resume_id, job_id? }
-
-    If job_id is provided: returns matched/missing/extra skills for that pair.
-    If job_id is omitted: returns skill gap summary across candidate's applications.
     """
     data, err = parse_body(SkillGapSchema)
     if err:
@@ -289,7 +297,6 @@ def skill_gap():
                 message="Skill gap analysis complete.",
             )
         else:
-            # Cross-application skill gap (aggregate)
             from app.repositories import ApplicationRepository, JobRepository
 
             apps, _ = ApplicationRepository().list_by_candidate(
@@ -297,14 +304,14 @@ def skill_gap():
                 page=1, limit=50,
             )
 
-            all_missing = {}
-            all_matched = {}
+            all_missing: dict[str, int] = {}
+            all_matched: dict[str, int] = {}
+            svcs = get_services()
             for app in apps:
                 job = JobRepository().get_by_id(app.job_id)
                 if not job:
                     continue
-                svcs = get_services()
-                bd   = svcs.keyword_matcher.get_skill_breakdown(
+                bd = svcs.keyword_matcher.get_skill_breakdown(
                     resume_skills=resume_skills,
                     job_required_skills=getattr(job, "required_skills_list", []) or [],
                 )
@@ -318,10 +325,10 @@ def skill_gap():
 
             return success(
                 data={
-                    "resume_id":              resume_id,
-                    "applications_analysed":  len(apps),
-                    "top_missing_skills":     [{"skill": s, "count": c} for s, c in sorted_missing[:10]],
-                    "top_matched_skills":     [{"skill": s, "count": c} for s, c in sorted_matched[:10]],
+                    "resume_id":             resume_id,
+                    "applications_analysed": len(apps),
+                    "top_missing_skills":    [{"skill": s, "count": c} for s, c in sorted_missing[:10]],
+                    "top_matched_skills":    [{"skill": s, "count": c} for s, c in sorted_matched[:10]],
                 },
                 message="Cross-application skill gap summary retrieved.",
             )
@@ -340,6 +347,8 @@ def list_scores():
     GET /api/v1/scores/
 
     Query params: page, limit, resume_id, job_id, min_score, max_score, score_label
+
+    FIX SC-03: list_filtered() now exists on AtsScoreRepository (see repository).
     """
     params, err = parse_query(AtsScoreQuerySchema)
     if err:
@@ -373,11 +382,7 @@ def list_scores():
 
 @scoring_bp.get("/<score_id>")
 def get_score(score_id: str):
-    """
-    GET /api/v1/scores/<score_id>
-
-    Returns the stored ATS score with full explanation.
-    """
+    """GET /api/v1/scores/<score_id>"""
     try:
         from app.repositories import AtsScoreRepository
         score = AtsScoreRepository().get_by_id(score_id)

@@ -43,7 +43,6 @@ from app.models.resume        import Resume        # noqa: F401
 from app.models.application   import Application   # noqa: F401
 from app.models.ats_score     import AtsScore      # noqa: F401
 from app.models.refresh_token import RefreshToken  # noqa: F401  ← Phase 7
-from app.models.resume_draft  import ResumeDraft
 
 __all__ = [
     # Enums
@@ -54,6 +53,5 @@ __all__ = [
     "SearchableMixin", "SoftDeleteMixin",
     # Models
     "Candidate", "Recruiter", "Job", "Resume", "Application", "AtsScore",
-    "RefreshToken",   # ← Phase 7
-    "ResumeDraft",
+    "RefreshToken", 
 ]

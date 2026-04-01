@@ -12,4 +12,4 @@ import os
 
 from app import create_app
 
-app = create_app(os.getenv("APP_ENV", "production"))
+app = create_app(os.getenv("APP_ENV", "development"))

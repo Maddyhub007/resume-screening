@@ -112,3 +112,14 @@ class ApplicationRepository(BaseRepository[Application]):
         )
         return {stage: count for stage, count in rows}
 
+    def get_applications_with_scores(self, candidate_id: str) -> list:
+        """Get all applications with their ATS scores for win rate analysis."""
+        from app.models.ats_score import AtsScore
+        return (
+            db.session.query(self.model, AtsScore)
+            .outerjoin(AtsScore, (AtsScore.resume_id == self.model.resume_id) &
+                                (AtsScore.job_id == self.model.job_id))
+            .filter(self.model.candidate_id == candidate_id)
+            .all()
+        )
+

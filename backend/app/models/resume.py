@@ -67,6 +67,8 @@ class Resume( SoftDeleteMixin, BaseModel):
     certifications: Mapped[str | None] = mapped_column(Text, nullable=True)
     projects:       Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_text:   Mapped[str | None] = mapped_column(Text, nullable=True)
+    contact_info:   Mapped[str | None] = mapped_column(Text, nullable=True)
+    oov_skills_list:Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ── Computed metrics ──────────────────────────────────────────────────────
     total_experience_years: Mapped[float] = mapped_column(Float,   default=0.0, nullable=False)
@@ -149,6 +151,14 @@ class Resume( SoftDeleteMixin, BaseModel):
         self.projects = json.dumps(v)
 
     @property
+    def oov_skills_list_parsed(self) -> list[str]:
+        return _jlist(self.oov_skills_list)
+
+    @oov_skills_list_parsed.setter
+    def oov_skills_list_parsed(self, v: list) -> None:
+        self.oov_skills_list = json.dumps(v)
+
+    @property
     def issues_list(self) -> list[dict]:
         return _jlist(self.issues_detected)
 
@@ -171,6 +181,17 @@ class Resume( SoftDeleteMixin, BaseModel):
     @improvement_tips_list.setter
     def improvement_tips_list(self, v: list) -> None:
         self.improvement_tips = json.dumps(v)
+
+    # Add this property after the existing column definitions:
+    @property
+    def file_name(self) -> str:
+        """Alias for filename — matches frontend type interface."""
+        return self.filename or ''
+    
+    @property
+    def file_size_bytes(self) -> int:
+        """Convert stored KB to bytes for API consistency."""
+        return (self.file_size_kb or 0) * 1024
 
     # ── Serialisation ─────────────────────────────────────────────────────────
 

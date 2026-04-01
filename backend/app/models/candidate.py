@@ -3,6 +3,22 @@ app/models/candidate.py
 
 Candidate profile model.
 
+FIXES APPLIED:
+  MD-01 — MRO (Method Resolution Order) inversion.
+
+    Original:  class Candidate(BaseModel, SoftDeleteMixin)
+    Problem:   Python's C3 linearisation resolves to_dict() from BaseModel
+               first. SoftDeleteMixin.to_dict() calls super().to_dict(), which
+               is also BaseModel.to_dict() when Candidate appears first.
+               Result: the MRO chain was correct by accident here, but the
+               pattern is fragile and breaks when a third mixin is added.
+
+    Fixed:     class Candidate(SoftDeleteMixin, BaseModel)
+               MRO: Candidate → SoftDeleteMixin → BaseModel → ...
+               SoftDeleteMixin.to_dict() runs first, enriches the dict with
+               soft-delete fields, then calls super() to reach BaseModel.
+               This is the intended pattern for cooperative multiple inheritance.
+
 JWT Auth changes (Phase 7):
   - password_hash: scrypt-hashed password stored by /auth/register/candidate.
     Nullable so existing rows migrate safely — old accounts simply cannot log
@@ -23,10 +39,16 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel, db
 
+# FIX MD-01: import order matters; SoftDeleteMixin must come before BaseModel in MRO
 from app.models.mixins import SoftDeleteMixin
 
 
-class Candidate(BaseModel, SoftDeleteMixin):
+# FIX MD-01: was (BaseModel, SoftDeleteMixin) — now (SoftDeleteMixin, BaseModel)
+# MRO is now: Candidate → SoftDeleteMixin → BaseModel → db.Model → ...
+# SoftDeleteMixin.to_dict() enriches the dict, then delegates to BaseModel.to_dict()
+# via super(). With the old order, to_dict() resolved to BaseModel first and
+# SoftDeleteMixin's fields were appended inconsistently.
+class Candidate(SoftDeleteMixin, BaseModel):
     """
     Job-seeker profile.
 
@@ -53,7 +75,6 @@ class Candidate(BaseModel, SoftDeleteMixin):
     # ── Auth ──────────────────────────────────────────────────────────────────
     # scrypt hash from Werkzeug — NEVER store plain text here.
     # Nullable so rows created before Phase 7 migrate without error.
-    # Accounts with password_hash=NULL cannot log in until a password is set.
     password_hash: Mapped[str | None] = mapped_column(
         String(256),
         nullable=True,
@@ -81,10 +102,8 @@ class Candidate(BaseModel, SoftDeleteMixin):
 
     # ── Composite indexes ─────────────────────────────────────────────────────
     __table_args__ = (
-        # Active candidates open to work — used by recruiter search
         Index("ix_candidates_open_active", "open_to_work", "is_active"),
-        # Location filter for recruiter candidate search
-        Index("ix_candidates_location", "location"),
+        Index("ix_candidates_location",    "location"),
     )
 
     # ── Relationships ─────────────────────────────────────────────────────────
@@ -124,7 +143,6 @@ class Candidate(BaseModel, SoftDeleteMixin):
 
     def to_dict(self, exclude: set[str] | None = None) -> dict[str, Any]:
         """Full record — expands JSON list columns. Never includes password_hash."""
-        # Always exclude password_hash from serialisation
         _exclude = (exclude or set()) | {"password_hash"}
         d = super().to_dict(exclude=_exclude)
         d["preferred_roles"]     = self.preferred_roles_list

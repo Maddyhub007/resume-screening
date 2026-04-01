@@ -30,7 +30,12 @@ from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel
-from app.models.enums import ApplicationStage, SA_APPLICATION_STAGE, TERMINAL_STAGES
+from app.models.enums import (
+    ApplicationStage,
+    SA_APPLICATION_STAGE,
+    TERMINAL_STAGES,
+    STAGE_TRANSITIONS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +88,11 @@ class Application(BaseModel):
 
     # ── Candidate content ─────────────────────────────────────────────────────
     cover_letter: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    improvement_plan: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="AI-generated improvement plan for low-scoring applications"
+    )
 
     # ── Composite indexes + UNIQUE constraint ─────────────────────────────────
     __table_args__ = (

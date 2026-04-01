@@ -21,7 +21,7 @@ class ResumeRepository(BaseRepository[Resume]):
     def list_by_candidate(
         self,
         candidate_id: str,
-        active_only: bool = True,
+        active_only: bool = False,
         page: int = 1,
         limit: int = 20,
     ) -> tuple[list[Resume], int]:
@@ -84,17 +84,15 @@ class ResumeRepository(BaseRepository[Resume]):
         db.session.add(resume)
         return resume
 
-    def deactivate_previous(self, candidate_id: str) -> None:
-        """
-        Mark all existing resumes for a candidate as inactive.
-
-        Called before setting a new resume as active — ensures
-        only the most recent is active.
-        """
-        db.session.query(Resume).filter(
+    def deactivate_previous(self, candidate_id: str, exclude_id: str | None = None) -> None:
+        query = db.session.query(Resume).filter(
             Resume.candidate_id == candidate_id,
             Resume.is_deleted == False,   # noqa: E712
-        ).update(
+        )
+        if exclude_id:
+            query = query.filter(Resume.id != exclude_id)  # ← exclude current resume
+        
+        query.update(
             {Resume.is_active: False},
             synchronize_session=False,
         )

@@ -36,7 +36,7 @@ class RecruiterRepository(BaseRepository[Recruiter]):
         search: str | None = None,
         company_name: str | None = None,
     ) -> tuple[list[Recruiter], int]:
-        query = db.session.query(Recruiter).filter(Recruiter.is_active == True)  # noqa: E712
+        query = self.base_query().filter(Recruiter.is_active == True)  # noqa: E712
 
         if search:
             pattern = f"%{search.strip()}%"

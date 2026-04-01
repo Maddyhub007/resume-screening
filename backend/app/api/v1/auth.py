@@ -407,14 +407,79 @@ def refresh():
         return resp
 
     if not stored.is_valid():
-        # Distinguish revoked (possible replay attack) from expired
-        code = "TOKEN_REUSED" if stored.revoked else "REFRESH_EXPIRED"
-        message = (
-            "This session was already used. Please log in again."
-            if stored.revoked
-            else "Session expired. Please log in again."
-        )
-        resp = make_response(*error(message, code=code, status=401))
+        if not stored.revoked:
+            # Genuinely expired
+            resp = make_response(*error(
+                "Session expired. Please log in again.",
+                code="REFRESH_EXPIRED", status=401))
+            _clear_refresh_cookie(resp)
+            return resp
+
+        # Token is revoked — check if it was just rotated within the last 3 seconds.
+        # This handles the race: two simultaneous requests fire with the same cookie.
+        # Request A rotates it; Request B arrives ms later seeing revoked=True.
+        # Without this, Request B triggers TOKEN_REUSED and boots the user out.
+        GRACE_SECONDS = 3
+        revoked_at = stored.revoked_at
+        if revoked_at is not None:
+            if revoked_at.tzinfo is None:
+                revoked_at = revoked_at.replace(tzinfo=timezone.utc)
+            age_seconds = (datetime.now(timezone.utc) - revoked_at).total_seconds()
+
+            if age_seconds <= GRACE_SECONDS:
+                # Find the active successor token issued for this user
+                from app.models.refresh_token import RefreshToken as RT
+                successor = (
+                    db.session.query(RT)
+                    .filter_by(user_id=user_id, role=role, revoked=False)
+                    .order_by(RT.created_at.desc())
+                    .first()
+                )
+                if successor and successor.is_valid():
+                    # Issue a fresh access token — do NOT rotate the refresh token again.
+                    # The browser already received the successor cookie from the first request.
+                    try:
+                        if role == "candidate":
+                            from app.repositories import CandidateRepository
+                            user = CandidateRepository().get_by_id(user_id)
+                            user_dict = serialize_candidate(user)
+                        else:
+                            from app.repositories import RecruiterRepository
+                            user = RecruiterRepository().get_by_id(user_id)
+                            user_dict = serialize_recruiter(user)
+
+                        # Only need a fresh access token — reuse existing refresh token
+                        import jwt as _jwt
+                        secret = __import__('flask', fromlist=['current_app']).current_app.config["SECRET_KEY"]
+                        
+                        now = datetime.now(timezone.utc)
+                        access_ttl = timedelta(minutes=15)
+                        access_token = _jwt.encode(
+                            {"sub": user_id, "role": role, "type": "access",
+                             "jti": successor.jti, "iat": now, "exp": now + access_ttl},
+                            secret, algorithm="HS256"
+                        )
+                        from flask import jsonify
+                        body = {
+                            "success": True,
+                            "message": "Token refreshed successfully.",
+                            "data": {
+                                "access_token": access_token,
+                                "token_type": "Bearer",
+                                "expires_in": 15 * 60,
+                                "role": role,
+                                "user": user_dict,
+                            },
+                        }
+                        return make_response(jsonify(body), 200)
+                    except Exception:
+                        logger.warning("Grace window recovery failed", exc_info=True)
+                        # Fall through to TOKEN_REUSED
+
+        # Genuinely reused outside grace window — possible replay attack
+        resp = make_response(*error(
+            "Security alert: session invalidated. Please log in again.",
+            code="TOKEN_REUSED", status=401))
         _clear_refresh_cookie(resp)
         return resp
 
@@ -502,7 +567,7 @@ def logout():
 
     resp = make_response(*success(data=None, message="Logged out successfully."))
     _clear_refresh_cookie(resp)
-    logger.info("User logged out", extra={"user_id": g.user_id, "role": g.user_role})
+    logger.info("User logged out", extra={"user_id": g.jwt_user_id, "role": g.jwt_role})
     return resp
 
 

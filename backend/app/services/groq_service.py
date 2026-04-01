@@ -76,25 +76,32 @@ class GroqService:
 
     # ── Core completion ───────────────────────────────────────────────────────
 
-    def _complete(self, system: str, user: str) -> str | None:
+    def _complete(self, system: str, user: str, max_tokens: int | None = None) -> str | None:
         """
         Send a chat completion request with retry.
 
         Returns:
             Raw model string (may include markdown fences) or None on failure.
         """
+
+
+
         if not self.available or self._client is None:
             return None
+        
+        _max_tokens = max_tokens or self.max_tokens
 
         for attempt, delay in enumerate((*_RETRY_DELAYS, None), start=1):
             try:
+               
+
                 response = self._client.chat.completions.create(
                     model=self.model,
                     messages=[
                         {"role": "system", "content": system},
                         {"role": "user",   "content": user},
                     ],
-                    max_tokens=self.max_tokens,
+                    max_tokens=_max_tokens,
                     temperature=self.temperature,
                 )
                 return response.choices[0].message.content
@@ -272,6 +279,9 @@ Return ONLY valid JSON. No markdown, no preamble."""
         final_score: float,
         experience_score: float,
         semantic_score: float,
+        semantic_component_scores: dict | None = None,
+        keyword_score: float = 0.0,
+        section_quality_score: float = 0.0
     ) -> dict:
         """
         Generate a natural-language explanation for an ATS score.
@@ -282,16 +292,21 @@ Return ONLY valid JSON. No markdown, no preamble."""
         """
         user_prompt = f"""Explain this ATS match score:
 
-JOB TITLE: {job_title}
-REQUIRED SKILLS: {', '.join(job_required_skills[:15])}
-CANDIDATE SKILLS: {', '.join(candidate_skills[:20])}
-MATCHED SKILLS: {', '.join(matched_skills[:15])}
-MISSING SKILLS: {', '.join(missing_skills[:15])}
-FINAL SCORE: {final_score:.2f} (0=no match, 1=perfect)
-EXPERIENCE SCORE: {experience_score:.2f}
-SEMANTIC SCORE: {semantic_score:.2f}
+                JOB TITLE: {job_title}
+                REQUIRED SKILLS: {', '.join(job_required_skills[:15])}
+                CANDIDATE SKILLS: {', '.join(candidate_skills[:20])}
+                MATCHED SKILLS: {', '.join(matched_skills[:15])}
+                MISSING SKILLS: {', '.join(missing_skills[:15])}
+                FINAL SCORE: {final_score:.2f} (0=no match, 1=perfect)
+                EXPERIENCE SCORE: {experience_score:.2f}
+                SEMANTIC SCORE: {semantic_score:.2f}
+                KEYWORD SCORE: {keyword_score:.2f}
+                SECTION QUALITY SCORE: {section_quality_score:.2f}
 
-Provide explanation and actionable tips."""
+                Provide explanation and actionable tips."""
+        
+        if semantic_component_scores:
+            user_prompt += f"\nSEMANTIC BREAKDOWN: {json.dumps(semantic_component_scores)}"
 
         fallback = {
             "summary": f"Match score: {final_score:.0%}. Score explanation unavailable.",
@@ -344,3 +359,164 @@ Return 4-5 relevant job title suggestions with match scores."""
     def __repr__(self) -> str:
         status = "available" if self.available else "unavailable"
         return f"GroqService(model={self.model!r}, status={status})"
+    
+        # ── Resume Summary generation ──────────────────────────────────────────────────────
+
+
+    _SUMMARY_GENERATION_SYSTEM = """You are a professional resume writer.
+    Write a concise, impactful 3-sentence professional summary for a candidate.
+    Return a JSON object with exactly one key:
+    { "summary": "3-sentence professional summary here" }
+    Return ONLY valid JSON. No markdown, no preamble."""
+
+    def generate_resume_summary(
+        self,
+        skills: list[str],
+        experience_years: float,
+        experience: list[dict],
+        education: list[dict],
+        target_role: str = "",
+    ) -> dict:
+        """Generate a professional summary for a resume."""
+        recent_exp = experience[:2] if experience else []
+        exp_text = "; ".join(
+            f"{e.get('title', '')} at {e.get('company', '')}"
+            for e in recent_exp if e.get("title")
+        )
+
+        user_prompt = f"""Generate a professional summary for this candidate:
+
+        SKILLS: {', '.join(skills[:20]) if skills else 'not provided'}
+        EXPERIENCE: {experience_years} years
+        RECENT ROLES: {exp_text or 'not provided'}
+        EDUCATION: {json.dumps(education[:2]) if education else '[]'}
+        TARGET ROLE: {target_role or 'not specified'}
+
+        Write a compelling 3-sentence summary."""
+
+        fallback = {"summary": ""}
+        raw = self._complete(self._SUMMARY_GENERATION_SYSTEM, user_prompt, max_tokens=300)
+        return self._parse_json(raw, fallback)
+    
+
+        # ── Suggests Bulletins ──────────────────────────────────────────────────────
+
+    
+    _REWRITE_SUGGESTIONS_SYSTEM = """You are an expert resume coach.
+    Given a missing skill and a candidate's existing experience, suggest specific bullet points
+    they can add to their resume to demonstrate this skill.
+    Return a JSON object with exactly this key:
+    {
+    "suggestions": [
+        {
+        "bullet": "Specific bullet point to add to resume",
+        "section": "experience|skills|projects",
+        "reasoning": "Why this demonstrates the missing skill"
+        }
+    ]
+    }
+    Return 2-3 suggestions. Return ONLY valid JSON. No markdown, no preamble."""
+
+    def suggest_bullet_rewrites(
+        self,
+        missing_skill: str,
+        existing_experience: list[dict],
+        job_title: str,
+        candidate_skills: list[str],
+    ) -> dict:
+        """Suggest specific resume bullet rewrites to address a skill gap."""
+        exp_text = "\n".join(
+            f"- {e.get('title', '')} at {e.get('company', '')}: {e.get('description', '')[:200]}"
+            for e in (existing_experience or [])[:3]
+            if e.get("title")
+        )
+
+        user_prompt = f"""The candidate is missing: {missing_skill}
+    Target job: {job_title}
+    Their current skills: {', '.join(candidate_skills[:15])}
+    Their experience:
+    {exp_text or 'No experience provided'}
+
+    Suggest specific bullet points they can add to demonstrate {missing_skill}."""
+
+        fallback = {"suggestions": []}
+        raw = self._complete(self._REWRITE_SUGGESTIONS_SYSTEM, user_prompt, max_tokens=500)
+        return self._parse_json(raw, fallback)
+    
+    # ── Candidate Summary ──────────────────────────────────────────────────────
+
+
+    _CANDIDATE_SUMMARY_SYSTEM = """You are a senior recruiter writing concise hiring notes.
+    Given a candidate's ATS score data, write a 2-sentence hiring summary.
+    Return a JSON object with exactly these keys:
+    {
+    "summary": "2-sentence hiring summary",
+    "recommendation": "strong_yes|yes|maybe|no"
+    }
+    Return ONLY valid JSON. No markdown, no preamble."""
+
+    def generate_candidate_summary(
+        self,
+        candidate_name: str,
+        job_title: str,
+        final_score: float,
+        matched_skills: list[str],
+        missing_skills: list[str],
+        experience_years: float,
+        stage: str,
+    ) -> dict:
+        """Generate a 2-sentence recruiter hiring summary."""
+        user_prompt = f"""Write a hiring summary for:
+
+    CANDIDATE: {candidate_name}
+    JOB: {job_title}
+    ATS SCORE: {final_score:.0%}
+    MATCHED SKILLS: {', '.join(matched_skills[:8]) if matched_skills else 'none'}
+    MISSING SKILLS: {', '.join(missing_skills[:5]) if missing_skills else 'none'}
+    EXPERIENCE: {experience_years} years
+    CURRENT STAGE: {stage}
+
+    Write a 2-sentence recruiter summary and hiring recommendation."""
+
+        fallback = {
+            "summary": f"{candidate_name} scored {final_score:.0%} for {job_title}.",
+            "recommendation": "maybe" if final_score >= 0.5 else "no",
+        }
+        raw = self._complete(self._CANDIDATE_SUMMARY_SYSTEM, user_prompt, max_tokens=200)
+        return self._parse_json(raw, fallback)
+    
+    # ── Improvement Plan ──────────────────────────────────────────────────────
+    _IMPROVEMENT_COACH_SYSTEM = """You are a professional career coach.
+    Given a candidate's ATS score and skill gaps, create a specific numbered improvement plan.
+    Return a JSON object with exactly this key:
+    {
+    "plan": [
+        {"rank": 1, "action": "specific action to take", "impact": "high|medium|low", "effort": "hours|days|weeks"}
+    ]
+    }
+    Return 5 items. Return ONLY valid JSON. No markdown, no preamble."""
+
+    def generate_improvement_plan(
+        self,
+        job_title: str,
+        final_score: float,
+        missing_skills: list[str],
+        matched_skills: list[str],
+        experience_years: float,
+        required_years: float,
+    ) -> dict:
+        """Generate a ranked improvement plan for a low-scoring application."""
+        user_prompt = f"""Create an improvement plan for:
+
+    JOB: {job_title}
+    SCORE: {final_score:.0%}
+    MISSING SKILLS: {', '.join(missing_skills[:8]) if missing_skills else 'none'}
+    MATCHED SKILLS: {', '.join(matched_skills[:8]) if matched_skills else 'none'}
+    CANDIDATE EXPERIENCE: {experience_years} years
+    REQUIRED EXPERIENCE: {required_years} years
+
+    Create 5 specific, ranked actions to improve their chances for this type of role."""
+
+        fallback = {"plan": []}
+        raw = self._complete(self._IMPROVEMENT_COACH_SYSTEM, user_prompt, max_tokens=600)
+        return self._parse_json(raw, fallback)

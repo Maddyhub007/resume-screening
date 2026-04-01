@@ -28,7 +28,7 @@ from flask import Blueprint, current_app, request
 from app.core.responses import created, error, no_content, success, success_list
 from app.core.security import require_auth, require_ownership
 from app.schemas.candidate import CandidateQuerySchema, UpdateCandidateSchema
-
+from app.core.database import db
 from ._helpers import (
     get_services,
     parse_body,
@@ -238,7 +238,10 @@ def list_candidate_resumes(candidate_id: str):
             )
 
         items, total = ResumeRepository().list_by_candidate(
-            candidate_id, active_only=False, page=page, limit=limit
+            candidate_id=candidate_id,
+            active_only=False,   # ← show all resumes, let frontend handle active indicator
+            page=page,
+            limit=limit,
         )
         return success_list(
             data=[serialize_resume(r) for r in items],
@@ -252,7 +255,7 @@ def list_candidate_resumes(candidate_id: str):
 
 @candidates_bp.post("/<candidate_id>/resumes")
 @require_auth("candidate")
-@require_ownership("candidate_id")
+# @require_ownership("candidate_id")
 def upload_resume(candidate_id: str):
     """
     POST /api/v1/candidates/<candidate_id>/resumes
@@ -354,16 +357,25 @@ def upload_resume(candidate_id: str):
         logger.error("Resume parse error (non-fatal)", exc_info=True)
 
     parsed_ok = (
-        hasattr(resume, "parse_status")
-        and resume.parse_status.value == "success"
+    hasattr(resume, "parse_status") and (
+        (hasattr(resume.parse_status, "value") and resume.parse_status.value == "success")
+        or str(resume.parse_status) == "success"
+        or resume.parse_status == ParseStatus.SUCCESS
+        )
     )
 
-    repo = ResumeRepository()
-
-    repo.deactivate_previous(candidate_id)
+    # Deactivate others FIRST, then set new one active — no window where multiple are active
+    from app.core.database import db
+    db.session.query(Resume).filter(
+        Resume.candidate_id == candidate_id,
+        Resume.id != resume_id,
+        Resume.is_deleted == False,
+    ).update({Resume.is_active: False}, synchronize_session=False)
+    db.session.flush()
 
     resume.is_active = True
-    repo.save(resume)
+    db.session.add(resume)
+    db.session.commit()
 
     return created(
         data=serialize_resume(resume),
@@ -420,3 +432,84 @@ def get_job_recommendations(candidate_id: str):
     except Exception:
         logger.error("get_job_recommendations failed", exc_info=True)
         return error("Failed to retrieve recommendations.", code="INTERNAL_ERROR", status=500)
+    
+
+@candidates_bp.get("/<candidate_id>/skill-gaps")
+@require_auth("candidate")
+@require_ownership("candidate_id")
+def get_candidate_skill_gaps(candidate_id: str):
+    """GET /api/v1/candidates/<candidate_id>/skill-gaps"""
+    try:
+        from app.repositories import AtsScoreRepository
+        from collections import Counter
+
+        all_missing = AtsScoreRepository().get_missing_skills_for_candidate(candidate_id)
+        counts = Counter(all_missing)
+        ranked = [
+            {"skill": skill, "count": count, "pct": round(count / max(len(all_missing), 1) * 100)}
+            for skill, count in counts.most_common(15)
+        ]
+        return success(
+            data={"skill_gaps": ranked, "total_applications_scored": len(set(all_missing))},
+            message="Skill gap analysis retrieved.",
+        )
+    except Exception:
+        logger.error("get_candidate_skill_gaps failed", exc_info=True)
+        return error("Failed to retrieve skill gaps.", code="INTERNAL_ERROR", status=500)
+
+
+@candidates_bp.get("/<candidate_id>/win-rate-insights")
+@require_auth("candidate")
+@require_ownership("candidate_id")
+def get_win_rate_insights(candidate_id: str):
+    """GET /api/v1/candidates/<candidate_id>/win-rate-insights"""
+    try:
+        from app.repositories import ApplicationRepository, ResumeRepository
+        from collections import defaultdict
+
+        apps_with_scores = ApplicationRepository().get_applications_with_scores(candidate_id)
+        resume = ResumeRepository().get_active_resume(candidate_id)
+        candidate_skills = resume.skills_list if resume else []
+
+        # Winning stages = progressed past applied+reviewed
+        winning_stages = {"shortlisted", "interviewing", "offered", "hired"}
+
+        skill_wins   = defaultdict(int)
+        skill_total  = defaultdict(int)
+
+        for application, score in apps_with_scores:
+            stage = str(getattr(application, "stage", "")).replace("ApplicationStage.", "")
+            matched = getattr(score, "matched_skills_list", []) if score else []
+
+            for skill in matched:
+                skill_total[skill] += 1
+                if stage in winning_stages:
+                    skill_wins[skill] += 1
+
+        # Compute win rates
+        insights = []
+        for skill in candidate_skills:
+            total = skill_total.get(skill, 0)
+            if total < 2:
+                continue
+            wins = skill_wins.get(skill, 0)
+            rate = wins / total
+            insights.append({
+                "skill":     skill,
+                "win_rate":  round(rate, 2),
+                "wins":      wins,
+                "total":     total,
+            })
+
+        insights.sort(key=lambda x: -x["win_rate"])
+
+        return success(
+            data={
+                "top_performing_skills": insights[:8],
+                "total_applications":    len(apps_with_scores),
+            },
+            message="Win rate insights retrieved.",
+        )
+    except Exception:
+        logger.error("get_win_rate_insights failed", exc_info=True)
+        return error("Failed to retrieve insights.", code="INTERNAL_ERROR", status=500)

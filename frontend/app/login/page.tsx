@@ -79,6 +79,8 @@ export default function LoginPage() {
         } else {
           toast.error(getFriendlyError(err));
         }
+  }finally {
+    setLoading(false); 
   }
 }
 

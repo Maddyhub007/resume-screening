@@ -5,13 +5,25 @@ import { api, queryKeys, getFriendlyError } from "@/lib/api/client";
 import { AtsScoreCard } from "@/components/shared/AtsScoreCard";
 import { StageBadge, ScoreBadge } from "@/components/shared";
 import { formatRelativeDate } from "@/lib/utils/formatters";
-import { ArrowLeft, X, Save, Loader2, User, Users } from "lucide-react";
+import { ArrowLeft, X, Save, Loader2, User, Users, Zap } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Application, ApplicationStage } from "@/lib/types";
+import { createPortal } from "react-dom";
 
-// ── Column definitions — UNCHANGED ───────────────────────────────────────────
+// Add this map at the top of the file
+const STAGE_TRANSITIONS: Record<ApplicationStage, ApplicationStage[]> = {
+  applied:      ["reviewed", "shortlisted", "rejected", "withdrawn"],
+  reviewed:     ["shortlisted", "interviewing", "rejected", "withdrawn"],
+  shortlisted:  ["interviewing", "rejected", "withdrawn"],
+  interviewing: ["offered", "rejected", "withdrawn"],
+  offered:      ["hired", "rejected", "withdrawn"],
+  hired:        [],
+  rejected:     [],
+  withdrawn:    [],
+};
+
 const COLUMNS: { stage: ApplicationStage; label: string }[] = [
   { stage: "applied",      label: "Applied"      },
   { stage: "reviewed",     label: "Reviewed"     },
@@ -22,20 +34,47 @@ const COLUMNS: { stage: ApplicationStage; label: string }[] = [
   { stage: "rejected",     label: "Rejected"     },
 ];
 
-// ── LAYOUT CHANGE: Hired + Rejected are now part of one unified scrollable row
-//    instead of a separate stacked div. This fixes the broken layout where
-//    Hired was squished at the end of row 1 and Rejected fell below. ──────────
+// ── Portal wrapper — mounts children into document.body ──────────────────────
+function Portal({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
+  return createPortal(children, document.body);
+}
 
 export default function ApplicantsKanbanPage() {
-  const { id }          = useParams<{ id: string }>();
-  const queryClient     = useQueryClient();
-  const [selectedApp,      setSelectedApp]      = useState<Application | null>(null);
-  const [stageModal,       setStageModal]        = useState<Application | null>(null);
-  const [newStage,         setNewStage]          = useState<ApplicationStage>("reviewed");
-  const [notes,            setNotes]             = useState("");
-  const [rejectionReason,  setRejectionReason]   = useState("");
+  const { id }         = useParams<{ id: string }>();
+  const queryClient    = useQueryClient();
+  const [selectedApp,     setSelectedApp]    = useState<Application | null>(null);
+  const [stageModal,      setStageModal]     = useState<Application | null>(null);
+  const [newStage,        setNewStage]       = useState<ApplicationStage>("reviewed");
+  const [notes,           setNotes]          = useState("");
+  const [rejectionReason, setRejectionReason] = useState("");
 
-  // ── Queries — UNCHANGED ───────────────────────────────────────────────────
+  const [aiSummaries, setAiSummaries] = useState<Record<string, { summary: string; recommendation: string }>>({});
+  const [loadingSummary, setLoadingSummary] = useState<string | null>(null);
+
+  const handleGetAiSummary = async (applicationId: string) => {
+    if (aiSummaries[applicationId]) return;
+    setLoadingSummary(applicationId);
+    try {
+      const res = await api.getApplicationAiSummary(applicationId);
+      setAiSummaries((prev) => ({ ...prev, [applicationId]: res.data }));
+    } catch { toast.error("Could not generate summary."); }
+    finally { setLoadingSummary(null); }
+  };
+
+
+  // Lock body scroll when any modal is open
+  useEffect(() => {
+    if (selectedApp || stageModal) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [selectedApp, stageModal]);
+
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.applications({ job_id: id }),
     queryFn:  () => api.listApplications({ job_id: id, limit: 100 }),
@@ -46,57 +85,70 @@ export default function ApplicantsKanbanPage() {
     queryFn:  () => api.getJob(id),
   });
 
-  // ── Stage mutation — UNCHANGED ────────────────────────────────────────────
   const stageMutation = useMutation({
-    mutationFn: ({ appId, stage, recruiter_notes, rejection_reason }: {
-      appId: string; stage: ApplicationStage; recruiter_notes?: string; rejection_reason?: string;
-    }) => api.updateApplicationStage(appId, { stage, recruiter_notes, rejection_reason }),
-    onMutate: async ({ appId, stage }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.applications({ job_id: id }) });
-      const prev = queryClient.getQueryData(queryKeys.applications({ job_id: id }));
-      queryClient.setQueryData(queryKeys.applications({ job_id: id }), (old: any) => ({
-        ...old,
-        data: old?.data?.map((a: Application) => a.id === appId ? { ...a, stage } : a),
-      }));
-      return { prev };
-    },
-    onError: (err, _, ctx) => {
-      if (ctx?.prev) queryClient.setQueryData(queryKeys.applications({ job_id: id }), ctx.prev);
-      toast.error(getFriendlyError(err));
-    },
-    onSuccess: () => {
-      toast.success("Stage updated!");
-      setStageModal(null);
-      setNotes("");
-      setRejectionReason("");
-    },
-  });
+  mutationFn: ({ appId, stage, recruiter_notes, rejection_reason }: {
+    appId: string; stage: ApplicationStage; recruiter_notes?: string; rejection_reason?: string;
+  }) => api.updateApplicationStage(appId, { stage, recruiter_notes, rejection_reason }),
+  onMutate: async ({ appId, stage, recruiter_notes, rejection_reason }) => {
+    await queryClient.cancelQueries({ queryKey: queryKeys.applications({ job_id: id }) });
+    const prev = queryClient.getQueryData(queryKeys.applications({ job_id: id }));
+    queryClient.setQueryData(queryKeys.applications({ job_id: id }), (old: any) => ({
+      ...old,
+      data: old?.data?.map((a: Application) =>
+        a.id === appId
+          ? {
+              ...a,
+              stage,
+              recruiter_notes:  recruiter_notes  ?? a.recruiter_notes,   // ← add
+              rejection_reason: rejection_reason ?? a.rejection_reason,  // ← add
+            }
+          : a
+      ),
+    }));
+    return { prev };
+  },
+  onError: (err, _, ctx) => {
+    if (ctx?.prev) queryClient.setQueryData(queryKeys.applications({ job_id: id }), ctx.prev);
+    toast.error(getFriendlyError(err));
+  },
+  onSuccess: (res) => {
+    // ← Refetch to get server-confirmed data instead of just closing
+    queryClient.invalidateQueries({ queryKey: queryKeys.applications({ job_id: id }) });
+    toast.success("Stage updated!");
+    setStageModal(null);
+    setSelectedApp(null);
+    setNotes("");
+    setRejectionReason("");
+  },
+});
 
-  // ── Data helpers — UNCHANGED ──────────────────────────────────────────────
   const applications = data?.data ?? [];
-
   const getAppsForStage = (stage: ApplicationStage) =>
     applications.filter((a) => a.stage === stage);
 
   const openStageModal = (app: Application) => {
-    setStageModal(app);
-    const stages: ApplicationStage[] = ["applied","reviewed","shortlisted","interviewing","offered","hired","rejected","withdrawn"];
-    const idx = stages.indexOf(app.stage);
-    setNewStage(stages[Math.min(idx + 1, stages.length - 1)]);
-    setNotes("");
-    setRejectionReason("");
-  };
+  const validNext = STAGE_TRANSITIONS[app.stage] ?? [];
+  setNewStage(validNext[0] ?? app.stage); // ← default to first valid stage
+  setNotes("");
+  setRejectionReason("");
+  setStageModal(app);
+};
 
   const isTerminalStage = (stage: ApplicationStage) =>
     stage === "hired" || stage === "rejected";
 
-  return (
-    <div className="flex flex-col h-full min-h-0">
+  const recColors: Record<string, string> = {
+  strong_yes: "bg-emerald-500/10 border-emerald-500/20 text-emerald-400",
+  yes:        "bg-electric-500/10 border-electric-500/20 text-electric-400",
+  maybe:      "bg-amber-500/10 border-amber-500/20 text-amber-400",
+  no:         "bg-red-500/10 border-red-500/20 text-red-400",
+  };
 
-      {/* ── Page header ────────────────────────────────────────────────────
-          CHANGE: Added job link text to back arrow, improved spacing,
-          added total count badge */}
-      <div className="flex items-center gap-4 px-6 pt-6 pb-4 flex-shrink-0">
+  return (
+    <div className="flex flex-col" style={{ height: "calc(100vh - 0px)" }}>
+
+      {/* Header */}
+      <div className="flex items-center gap-4 px-6 pt-6 pb-4 flex-shrink-0 bg-charcoal-950 border-b border-white/[0.06]">
         <Link
           href={`/recruiter/jobs/${id}`}
           className="inline-flex items-center gap-1.5 text-text-muted hover:text-text-primary text-sm transition-colors flex-shrink-0"
@@ -104,16 +156,12 @@ export default function ApplicantsKanbanPage() {
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Job</span>
         </Link>
-
         <div className="w-px h-4 bg-white/[0.1]" />
-
         <div className="min-w-0">
           <h1 className="font-display text-xl font-bold text-text-primary truncate">
             Pipeline — {jobData?.data?.title ?? "Loading…"}
           </h1>
         </div>
-
-        {/* Applicant count badge */}
         <div className="ml-auto flex items-center gap-1.5 flex-shrink-0 px-3 py-1 rounded-full bg-charcoal-800 border border-white/[0.07]">
           <Users className="w-3.5 h-3.5 text-text-muted" />
           <span className="text-sm text-text-secondary">
@@ -122,21 +170,10 @@ export default function ApplicantsKanbanPage() {
         </div>
       </div>
 
-      {/* ── Kanban board ───────────────────────────────────────────────────
-          CHANGE: All 7 columns (including Hired + Rejected) are now in ONE
-          unified horizontally-scrollable flex row. No more separate stacked
-          div for terminal stages — that was the root cause of the broken layout.
-
-          Each column has:
-            - min-w-[220px]: never collapses below 220px on small screens
-            - flex-1: expands evenly when there's room
-            - max-w-[280px]: caps growth so wide screens don't get absurd columns
-
-          The outer div uses overflow-x-auto so the whole board scrolls
-          horizontally as one unit. */}
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto px-6 pb-6">
+      {/* Kanban board — independent scroll, no height clash */}
+      <div className="flex-1 overflow-x-auto overflow-y-auto px-6 py-6">
         {isLoading ? (
-          <div className="flex gap-3 h-full">
+          <div className="flex gap-3">
             {COLUMNS.map((_, i) => (
               <div key={i} className="flex-shrink-0 w-56">
                 <div className="h-10 skeleton rounded-lg mb-3" />
@@ -147,152 +184,250 @@ export default function ApplicantsKanbanPage() {
             ))}
           </div>
         ) : (
-          <div className="flex gap-3 h-full items-start" style={{ minWidth: "max-content" }}>
-            {COLUMNS.map(({ stage, label }) => {
-              const apps       = getAppsForStage(stage);
-              const isTerminal = isTerminalStage(stage);
-              return (
-                <KanbanColumn
-                  key={stage}
-                  stage={stage}
-                  label={label}
-                  apps={apps}
-                  isTerminal={isTerminal}
-                  onCardClick={setSelectedApp}
-                  onMoveClick={isTerminal ? () => {} : openStageModal}
-                />
-              );
-            })}
+          <div className="flex gap-3 items-start" style={{ minWidth: "max-content" }}>
+            {COLUMNS.map(({ stage, label }) => (
+              <KanbanColumn
+                key={stage}
+                stage={stage}
+                label={label}
+                apps={getAppsForStage(stage)}
+                isTerminal={isTerminalStage(stage)}
+                onCardClick={setSelectedApp}
+                onMoveClick={isTerminalStage(stage) ? () => {} : openStageModal}
+              />
+            ))}
           </div>
         )}
       </div>
 
-      {/* ── Application detail drawer — UNCHANGED (logic) ─────────────────
-          CHANGE: Only z-index and backdrop — no logic changes */}
+      {/* ── Application detail modal — rendered via Portal to avoid layout clash */}
       {selectedApp && (
-        <div className="fixed inset-0 z-50 flex" onClick={() => setSelectedApp(null)}>
-          <div className="flex-1 bg-black/60 backdrop-blur-sm" />
+        <Portal>
           <div
-            className="w-[520px] bg-charcoal-900 border-l border-white/[0.07] overflow-y-auto shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 flex items-center justify-center z-[100]"
+            onClick={() => setSelectedApp(null)}
           >
-            <div className="p-6 border-b border-white/[0.06] flex items-center justify-between sticky top-0 bg-charcoal-900 z-10">
-              <div>
-                <h2 className="font-display font-semibold text-text-primary">
-                  {selectedApp.candidate?.full_name ?? "Applicant"}
-                </h2>
-                <div className="flex items-center gap-2 mt-1">
-                  <StageBadge stage={selectedApp.stage} />
-                  <span className="text-text-muted text-xs">{formatRelativeDate(selectedApp.applied_at)}</span>
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+
+            {/* Modal box */}
+            <div
+              className="relative w-full max-w-lg mx-4 bg-charcoal-900 border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal header */}
+              <div className="p-5 border-b border-white/[0.06] flex items-center justify-between flex-shrink-0">
+                <div>
+                  <h2 className="font-display font-semibold text-text-primary">
+                    {selectedApp.candidate?.full_name ?? "Applicant"}
+                  </h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    <StageBadge stage={selectedApp.stage} />
+                    <span className="text-text-muted text-xs">
+                      {formatRelativeDate(selectedApp.applied_at)}
+                    </span>
+                  </div>
                 </div>
+                <button
+                  onClick={() => setSelectedApp(null)}
+                  className="p-2 rounded-lg hover:bg-charcoal-700 transition-colors"
+                >
+                  <X className="w-4 h-4 text-text-muted" />
+                </button>
               </div>
-              <button
-                onClick={() => setSelectedApp(null)}
-                className="p-2 rounded-lg hover:bg-charcoal-700 transition-colors"
-              >
-                <X className="w-4 h-4 text-text-muted" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              {selectedApp.ats_score ? (
-                <AtsScoreCard score={selectedApp.ats_score} mode="full" />
-              ) : (
-                <div className="card p-6 text-center text-text-muted">
-                  <p className="text-sm">No ATS score available.</p>
+
+              
+
+              {/* Modal body — scrollable */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                  {selectedApp && (
+                    // In modal body:
+                    <div className="space-y-3">
+                      {/* AI Summary */}
+                      {aiSummaries[selectedApp.id] ? (
+                        <div className={`p-3 rounded-xl border text-sm ${
+                          recColors[aiSummaries[selectedApp.id].recommendation] ?? recColors.maybe
+                        }`}>
+                          <p className="font-semibold text-xs uppercase tracking-wider mb-1">
+                            AI Hiring Summary
+                          </p>
+                          <p className="leading-relaxed">{aiSummaries[selectedApp.id].summary}</p>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleGetAiSummary(selectedApp.id)}
+                          disabled={loadingSummary === selectedApp.id}
+                          className="btn-ghost text-xs flex items-center gap-1.5 text-electric-400 w-full justify-center"
+                        >
+                          {loadingSummary === selectedApp.id
+                            ? <Loader2 className="w-3 h-3 animate-spin" />
+                            : <Zap className="w-3 h-3" />
+                          }
+                          Generate AI Hiring Summary
+                        </button>
+                      )}
+
+                      {/* Existing ATS score card */}
+                      {selectedApp.ats_score
+                        ? <AtsScoreCard score={selectedApp.ats_score} mode="full" />
+                        : <div className="card p-6 text-center text-text-muted text-sm">No ATS score available.</div>
+                      }
+                    </div>
+                  )}
+
+                  {/* ← Add recruiter notes display */}
+                    {selectedApp.recruiter_notes && (
+                      <div className="card p-4 space-y-1">
+                        <p className="text-xs text-text-muted uppercase tracking-wider font-semibold">
+                          Recruiter Notes
+                        </p>
+                        <p className="text-sm text-text-secondary leading-relaxed">
+                          {selectedApp.recruiter_notes}
+                        </p>
+                      </div>
+                    )}
+
+                  {/* ← Add rejection reason display */}
+                    {selectedApp.rejection_reason && (
+                      <div className="card p-4 space-y-1 border-red-500/20">
+                        <p className="text-xs text-red-400 uppercase tracking-wider font-semibold">
+                          Rejection Reason
+                        </p>
+                        <p className="text-sm text-text-secondary leading-relaxed">
+                          {selectedApp.rejection_reason}
+                        </p>
+                      </div>
+                  )}
+              </div>
+
+              
+
+              {/* Modal footer */}
+              {!isTerminalStage(selectedApp.stage) && (
+                <div className="p-5 border-t border-white/[0.06] flex-shrink-0">
+                  <button
+                    onClick={() => { setSelectedApp(null); openStageModal(selectedApp); }}
+                    className="btn-primary w-full"
+                  >
+                    Update Stage
+                  </button>
                 </div>
               )}
-              <button
-                onClick={() => { setSelectedApp(null); openStageModal(selectedApp); }}
-                className="btn-primary w-full"
-              >
-                Update Stage
-              </button>
             </div>
           </div>
-        </div>
+        </Portal>
       )}
 
-      {/* ── Stage update modal — UNCHANGED ───────────────────────────────── */}
+      {/* ── Stage update modal — also via Portal */}
       {stageModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setStageModal(null)}>
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+        <Portal>
           <div
-            className="relative card p-6 w-full max-w-md mx-4 space-y-4"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 flex items-center justify-center z-[100]"
+            onClick={() => setStageModal(null)}
           >
-            <h2 className="font-display font-semibold text-text-primary">Update Stage</h2>
-            <p className="text-text-muted text-sm">{stageModal.candidate?.full_name ?? "Applicant"}</p>
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+            <div
+              className="relative w-full max-w-md mx-4 bg-charcoal-900 border border-white/[0.08] rounded-2xl shadow-2xl p-6 space-y-4 max-h-[85vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="font-display font-semibold text-text-primary">Update Stage</h2>
+                <button
+                  onClick={() => setStageModal(null)}
+                  className="p-2 rounded-lg hover:bg-charcoal-700 transition-colors"
+                >
+                  <X className="w-4 h-4 text-text-muted" />
+                </button>
+              </div>
 
-            <div>
-              <label className="label">New Stage</label>
-              <select
-                className="input"
-                value={newStage}
-                onChange={(e) => setNewStage(e.target.value as ApplicationStage)}
-              >
-                {["applied","reviewed","shortlisted","interviewing","offered","hired","rejected","withdrawn"].map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
+              <p className="text-text-muted text-sm">
+                {stageModal.candidate?.full_name ?? "Applicant"}
+                <span className="ml-2"><StageBadge stage={stageModal.stage} /></span>
+              </p>
 
-            <div>
-              <label className="label">Recruiter Notes (optional)</label>
-              <textarea
-                className="input min-h-[80px]"
-                placeholder="Add notes for your team..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </div>
-
-            {newStage === "rejected" && (
               <div>
-                <label className="label">Rejection Reason *</label>
-                <input
+                <label className="label">New Stage</label>
+                <select
                   className="input"
-                  placeholder="Not enough experience..."
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
+                  value={newStage}
+                  onChange={(e) => setNewStage(e.target.value as ApplicationStage)}
+                >
+                  {(STAGE_TRANSITIONS[stageModal.stage] ?? []).length === 0 ? (
+                    <option disabled>No valid transitions</option>
+                  ) : (
+                    STAGE_TRANSITIONS[stageModal.stage].map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="label">Recruiter Notes (optional)</label>
+                <textarea
+                  className="input min-h-[80px]"
+                  placeholder="Add notes for your team..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
                 />
               </div>
-            )}
 
-            <div className="flex gap-3">
-              <button onClick={() => setStageModal(null)} className="btn-secondary flex-1">Cancel</button>
-              <button
-                onClick={() => stageMutation.mutate({
-                  appId:            stageModal.id,
-                  stage:            newStage,
-                  recruiter_notes:  notes || undefined,
-                  rejection_reason: newStage === "rejected" ? rejectionReason : undefined,
-                })}
-                disabled={stageMutation.isPending || (newStage === "rejected" && !rejectionReason)}
-                className="btn-primary flex-1 flex items-center justify-center gap-2"
-              >
-                {stageMutation.isPending
-                  ? <Loader2 className="w-4 h-4 animate-spin" />
-                  : <Save className="w-4 h-4" />
-                }
-                Save
-              </button>
+              {newStage === "rejected" && (
+                <div>
+                  <label className="label">Rejection Reason *</label>
+                  <input
+                    className="input"
+                    placeholder="Not enough experience..."
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setStageModal(null)}
+                  className="btn-secondary flex-1"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => stageMutation.mutate({
+                    appId:            stageModal.id,
+                    stage:            newStage,
+                    recruiter_notes:  notes || undefined,
+                    rejection_reason: newStage === "rejected" ? rejectionReason : undefined,
+                  })}
+                  disabled={
+                    stageMutation.isPending ||
+                    (newStage === "rejected" && !rejectionReason)
+                  }
+                  className="btn-primary flex-1 flex items-center justify-center gap-2"
+                >
+                  {stageMutation.isPending
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Save className="w-4 h-4" />
+                  }
+                  Save
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </Portal>
       )}
     </div>
   );
 }
 
-// ── KanbanColumn — layout improved, logic UNCHANGED ──────────────────────────
+// ── KanbanColumn ──────────────────────────────────────────────────────────────
 const HEADER_COLORS: Record<string, string> = {
-  applied:      "bg-blue-500/10    text-blue-400    border-blue-500/20",
+  applied:      "bg-blue-500/10     text-blue-400    border-blue-500/20",
   reviewed:     "bg-electric-500/10 text-electric-400 border-electric-500/20",
-  shortlisted:  "bg-purple-500/10  text-purple-400  border-purple-500/20",
-  interviewing: "bg-amber-500/10   text-amber-400   border-amber-500/20",
-  offered:      "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  hired:        "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  rejected:     "bg-red-500/10     text-red-400     border-red-500/20",
+  shortlisted:  "bg-purple-500/10   text-purple-400  border-purple-500/20",
+  interviewing: "bg-amber-500/10    text-amber-400   border-amber-500/20",
+  offered:      "bg-emerald-500/10  text-emerald-400 border-emerald-500/20",
+  hired:        "bg-emerald-500/15  text-emerald-300 border-emerald-500/30",
+  rejected:     "bg-red-500/10      text-red-400     border-red-500/20",
 };
 
 function KanbanColumn({ stage, label, apps, onCardClick, onMoveClick, isTerminal }: {
@@ -304,22 +439,15 @@ function KanbanColumn({ stage, label, apps, onCardClick, onMoveClick, isTerminal
   isTerminal:  boolean;
 }) {
   return (
-    // CHANGE: unified width for all columns — min/max so they breathe on
-    // large screens but never collapse on small ones
     <div className="flex flex-col w-56 flex-shrink-0">
-
-      {/* Column header */}
       <div className={`flex items-center justify-between px-3 py-2 rounded-lg border mb-2 ${HEADER_COLORS[stage] ?? "bg-charcoal-700 text-text-secondary border-white/[0.07]"}`}>
         <span className="text-sm font-semibold capitalize">{label}</span>
         <span className="text-xs font-bold opacity-80 bg-black/20 px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
           {apps.length}
         </span>
       </div>
-
-      {/* Cards */}
-      <div className="flex flex-col gap-2 flex-1">
+      <div className="flex flex-col gap-2">
         {apps.length === 0 ? (
-          // CHANGE: proper empty state per column instead of blank void
           <div className="flex flex-col items-center justify-center py-8 px-3 rounded-xl border border-dashed border-white/[0.06] text-center">
             <div className="w-8 h-8 rounded-full bg-charcoal-800 flex items-center justify-center mb-2">
               <User className="w-3.5 h-3.5 text-text-muted opacity-40" />
@@ -342,7 +470,7 @@ function KanbanColumn({ stage, label, apps, onCardClick, onMoveClick, isTerminal
   );
 }
 
-// ── ApplicantCard — UNCHANGED (logic + structure) ─────────────────────────────
+// ── ApplicantCard ─────────────────────────────────────────────────────────────
 function ApplicantCard({ app, onClick, onMove, isTerminal }: {
   app:        Application;
   onClick:    () => void;
@@ -380,7 +508,7 @@ function ApplicantCard({ app, onClick, onMove, isTerminal }: {
         {!isTerminal && (
           <button
             onClick={(e) => { e.stopPropagation(); onMove(); }}
-            className="text-[10px] text-electric-400 hover:text-electric-300 opacity-0 group-hover:opacity-100 transition-opacity"
+            className="text-[10px] text-electric-400 hover:text-electric-300 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-0.5 rounded bg-electric-500/10"
           >
             Move →
           </button>
@@ -389,3 +517,4 @@ function ApplicantCard({ app, onClick, onMove, isTerminal }: {
     </div>
   );
 }
+

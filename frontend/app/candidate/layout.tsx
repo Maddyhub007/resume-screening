@@ -15,7 +15,6 @@ const NAV = [
   { href: "/candidate/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/candidate/jobs", icon: Briefcase, label: "Jobs" },
   { href: "/candidate/resumes", icon: FileText, label: "My Resumes" },
-  { href: "/candidate/resume-builder",  icon: Wand2, label: "Resume Builder" },
   { href: "/candidate/applications", icon: ClipboardList, label: "Applications" },
   { href: "/candidate/profile", icon: User, label: "Profile" },
 ];

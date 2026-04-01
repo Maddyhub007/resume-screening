@@ -68,6 +68,7 @@ class KeywordMatcherService:
         job_description: str,
         job_required_skills: list[str],
         job_nice_to_have_skills: Optional[list[str]] = None,
+        oov_skills: Optional[list[str]] = None,
         bm25_weight: float = 0.60,
         overlap_weight: float = 0.40,
     ) -> float:
@@ -100,6 +101,19 @@ class KeywordMatcherService:
         )
 
         combined = bm25_weight * bm25_score + overlap_weight * overlap_score
+
+        # OOV skills boost: unrecognised skills from resume that appear in
+        # job description get a 0.5x contribution (half-weight, cautious).
+        if oov_skills:
+            job_text_lower = (job_description or "").lower()
+            oov_matches = sum(
+                1 for s in oov_skills
+                if s.lower() in job_text_lower
+            )
+            if job_required_skills:
+                oov_boost = 0.5 * (oov_matches / max(len(job_required_skills), 1))
+                combined = min(1.0, combined + oov_boost * overlap_weight)
+
         return round(min(1.0, max(0.0, combined)), 4)
 
     # ── BM25 ──────────────────────────────────────────────────────────────────
@@ -151,37 +165,31 @@ class KeywordMatcherService:
 
     # ── Skill overlap ─────────────────────────────────────────────────────────
 
+    def _normalise_skill(self, skill: str) -> str:
+        """Normalise a skill string using synonym map."""
+        try:
+            from app.services.skill_taxonomy import SKILL_SYNONYMS
+            return SKILL_SYNONYMS.get(skill.lower().strip(), skill.lower().strip())
+        except ImportError:
+            return skill.lower().strip()
+
     def _skill_overlap_score(
         self,
         resume_skills: list[str],
         required_skills: list[str],
         nice_to_have_skills: list[str],
     ) -> float:
-        """
-        Weighted skill overlap ratio.
+        # Normalise all skills through synonym map before comparison
+        resume_set = {self._normalise_skill(s) for s in resume_skills}
+        req_set    = {self._normalise_skill(s) for s in required_skills}
+        nth_set    = {self._normalise_skill(s) for s in nice_to_have_skills}
 
-        Required skills contribute 2x toward both numerator and denominator.
-        Nice-to-have skills contribute 1x.
-
-        Score = matched_weighted / total_weighted
-        """
-        if not required_skills and not nice_to_have_skills:
-            return 0.0
-
-        resume_set = {s.lower() for s in resume_skills}
-        req_set = {s.lower() for s in required_skills}
-        nth_set = {s.lower() for s in nice_to_have_skills}
-
-        # Weighted numerator
         matched_req = len(resume_set & req_set)
         matched_nth = len(resume_set & nth_set)
-        numerator = 2 * matched_req + matched_nth
-
-        # Weighted denominator
+        numerator   = 2 * matched_req + matched_nth
         denominator = 2 * len(req_set) + len(nth_set)
         if denominator == 0:
             return 0.0
-
         return min(1.0, numerator / denominator)
 
     def get_skill_breakdown(
@@ -190,28 +198,13 @@ class KeywordMatcherService:
         job_required_skills: list[str],
         job_nice_to_have_skills: Optional[list[str]] = None,
     ) -> dict:
-        """
-        Return a dict with matched, missing, and extra skills.
-
-        Used by ExplainabilityEngine to generate skill gap explanations.
-
-        Returns:
-            {
-              "matched":   [...],   # Skills in both resume and job
-              "missing":   [...],   # Job skills not in resume
-              "extra":     [...],   # Resume skills not required by job
-            }
-        """
         nice_to_have = job_nice_to_have_skills or []
-        resume_set = {s.lower() for s in resume_skills}
-        all_job_skills = {s.lower() for s in job_required_skills + nice_to_have}
-
-        matched = sorted(resume_set & all_job_skills)
-        missing = sorted({s.lower() for s in job_required_skills} - resume_set)
-        extra   = sorted(resume_set - all_job_skills)
+        resume_set   = {self._normalise_skill(s) for s in resume_skills}
+        all_job      = {self._normalise_skill(s) for s in job_required_skills + nice_to_have}
+        req_set      = {self._normalise_skill(s) for s in job_required_skills}
 
         return {
-            "matched": matched,
-            "missing": missing,
-            "extra":   extra[:10],  # Cap extra at 10 to avoid noise
+            "matched": sorted(resume_set & all_job),
+            "missing": sorted(req_set - resume_set),
+            "extra":   sorted(resume_set - all_job)[:10],
         }

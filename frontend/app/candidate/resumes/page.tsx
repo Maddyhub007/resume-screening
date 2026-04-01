@@ -46,6 +46,16 @@ export default function ResumesPage() {
     onError: (err) => toast.error(getFriendlyError(err)),
   });
 
+  const generateSummaryMutation = useMutation({
+    mutationFn: ({ resumeId, targetRole }: { resumeId: string; targetRole?: string }) =>
+      api.generateResumeSummary(resumeId, targetRole),
+    onSuccess: () => {
+      toast.success("AI summary generated!");
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidateResumes(userId!) });
+    },
+    onError: (err) => toast.error(getFriendlyError(err)),
+  });
+
   const handleAnalyze = async (resumeId: string) => {
     setAnalyzingId(resumeId);
     try {
@@ -82,6 +92,15 @@ export default function ResumesPage() {
   });
 
   const resumes = data?.data ?? [];
+
+  const setActiveMutation = useMutation({
+    mutationFn: (resumeId: string) => api.setActiveResume(resumeId),
+    onSuccess: () => {
+      toast.success("Active resume updated!");
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidateResumes(userId!) });
+    },
+    onError: (err) => toast.error(getFriendlyError(err)),
+  });
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -143,8 +162,12 @@ export default function ResumesPage() {
               resume={resume}
               onDelete={() => deleteMutation.mutate(resume.id)}
               onAnalyze={() => handleAnalyze(resume.id)}
+              onSetActive={()=> setActiveMutation.mutate(resume.id)}
               isAnalyzing={analyzingId === resume.id}
               isDeleting={deleteMutation.isPending}
+              isSettingActive={ setActiveMutation.isPending && setActiveMutation.variables === resume.id}
+              onGenerateSummary={(resumeId) => generateSummaryMutation.mutate({ resumeId })}
+              isGeneratingSummary={generateSummaryMutation.isPending}
             />
           ))}
         </div>
@@ -153,10 +176,19 @@ export default function ResumesPage() {
   );
 }
 
-function ResumeCard({ resume, onDelete, onAnalyze, isAnalyzing, isDeleting }: {
-  resume: Resume; onDelete: () => void; onAnalyze: () => void;
-  isAnalyzing: boolean; isDeleting: boolean;
-}) {
+interface ResumeCardProps {
+  resume: Resume;
+  onDelete: () => void;
+  onAnalyze: () => void;
+  onSetActive: () => void;      
+  isAnalyzing: boolean;
+  isDeleting: boolean;
+  isSettingActive: boolean;   
+  onGenerateSummary: (resumeId: string) => void;
+  isGeneratingSummary: boolean
+}
+
+function ResumeCard({ resume, onDelete, onAnalyze, onSetActive,  isAnalyzing, isDeleting, isSettingActive, onGenerateSummary , isGeneratingSummary }: ResumeCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const statusConfig = {
@@ -170,11 +202,19 @@ function ResumeCard({ resume, onDelete, onAnalyze, isAnalyzing, isDeleting }: {
       <div className="p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-charcoal-700 flex items-center justify-center flex-shrink-0">
+            <div className="relative w-10 h-10 rounded-xl bg-charcoal-700 flex items-center justify-center flex-shrink-0">
               <FileText className="w-5 h-5 text-electric-400" />
+              {resume.is_active && (
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-charcoal-900" />
+              )}
             </div>
             <div>
+              <div className="flex items-center gap-2">
               <h3 className="font-medium text-text-primary">{resume.file_name}</h3>
+              {resume.is_active && (
+                  <span className="badge badge-excellent text-[10px]">Active</span>
+                )}
+              </div>
               <div className="flex items-center gap-3 mt-1 text-xs text-text-muted">
                 <span className={`flex items-center gap-1 ${statusConfig.className}`}>
                   {statusConfig.icon} {statusConfig.label}
@@ -189,7 +229,20 @@ function ResumeCard({ resume, onDelete, onAnalyze, isAnalyzing, isDeleting }: {
           </div>
 
           <div className="flex items-center gap-2">
-            {resume.parse_status === "success" && (
+            {resume.parse_status === "success" && !resume.is_active && (
+              <button
+                onClick={onSetActive}
+                disabled={isSettingActive}
+                className="btn-ghost text-xs py-1.5 px-3 flex items-center gap-1.5 text-emerald-400 hover:bg-emerald-500/10"
+              >
+                {isSettingActive
+                  ? <Loader2 className="w-3 h-3 animate-spin" />
+                  : <CheckCircle2 className="w-3 h-3" />
+                }
+                Set Active
+              </button>
+            )}
+            {resume.parse_status === "success" &&  (
               <button
                 onClick={onAnalyze}
                 disabled={isAnalyzing}
@@ -202,7 +255,7 @@ function ResumeCard({ resume, onDelete, onAnalyze, isAnalyzing, isDeleting }: {
             <button onClick={() => setExpanded(!expanded)} className="btn-ghost text-xs py-1.5 px-3">
               {expanded ? "Collapse" : "View Details"}
             </button>
-            <button onClick={onDelete} disabled={isDeleting} className="p-2 rounded-lg text-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors">
+            <button onClick={onDelete} disabled={isDeleting || resume.is_active} title={resume.is_active ? "Set another resume as active before deleting" : "Delete"} className="p-2 rounded-lg text-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors">
               <Trash2 className="w-4 h-4" />
             </button>
           </div>
@@ -214,8 +267,40 @@ function ResumeCard({ resume, onDelete, onAnalyze, isAnalyzing, isDeleting }: {
             {/* Summary */}
             {resume.resume_summary && (
               <div>
-                <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">AI Summary</h4>
-                <p className="text-sm text-text-secondary leading-relaxed">{resume.resume_summary}</p>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+                    AI Summary
+                  </h4>
+                  {/* Show Generate button when there is NO summary */}
+                  {!resume.resume_summary && (
+                    <button
+                      onClick={() => onGenerateSummary(resume.id)}
+                      disabled={isGeneratingSummary}
+                      className="btn-ghost text-xs py-1 px-2 flex items-center gap-1 text-electric-400"
+                    >
+                      {isGeneratingSummary
+                        ? <Loader2 className="w-3 h-3 animate-spin" />
+                        : <Zap className="w-3 h-3" />
+                      }
+                      Generate
+                    </button>
+                  )}
+                </div>
+                {resume.resume_summary ? (
+                  <div className="relative group">
+                    <p className="text-sm text-text-secondary leading-relaxed">{resume.resume_summary}</p>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(resume.resume_summary!); toast.success("Copied!"); }}
+                      className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 btn-ghost text-xs py-0.5 px-2"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-text-muted italic">
+                    No summary yet — click Generate to create one with AI.
+                  </p>
+                )}
               </div>
             )}
 
@@ -258,7 +343,7 @@ function ResumeCard({ resume, onDelete, onAnalyze, isAnalyzing, isDeleting }: {
                           <div className="font-medium">{r.title}</div>
                           <div className="font-small">{r.reason}</div>
                           <div className="text-xs opacity-70">
-                            {Math.round(r.confidence * 100)}% match
+                            {Math.round(((r.confidence ?? r.match_score ?? 0)) * 100)}% match
                           </div>
                         </div>
                       ))}

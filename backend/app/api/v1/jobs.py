@@ -385,7 +385,7 @@ def get_job_performance(job_id: str):
 
         svcs = get_services()
         perf = svcs.recruiter_analytics.get_job_performance(
-            recruiter_id=g.user_id,             # ← pass the authenticated recruiter
+            recruiter_id=g.jwt_user_id,             # ← pass the authenticated recruiter
             job_id=job_id,
         )
 

@@ -74,12 +74,13 @@ export interface Candidate {
   updated_at: string;
 }
 
+// Update Resume interface — add missing fields:
 export interface Resume {
   id: string;
   candidate_id: string;
-  file_name: string;
-  file_size_bytes: number;
-  content_type: string;
+  file_name: string;          // ← was filename, now fixed
+  file_size_bytes: number;    // ← computed from file_size_kb * 1024
+  content_type: string | null;
   parse_status: ParseStatus;
   parse_error_msg?: string;
   skills: string[];
@@ -96,6 +97,54 @@ export interface Resume {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+
+
+// Add new types for improvements:
+export interface SkillGap {
+  skill: string;
+  count: number;
+  pct: number;
+}
+
+export interface WinRateInsight {
+  skill: string;
+  win_rate: number;
+  wins: number;
+  total: number;
+}
+
+export interface ImprovementPlanItem {
+  rank: number;
+  action: string;
+  impact: "high" | "medium" | "low";
+  effort: string;
+}
+
+export interface RewriteSuggestion {
+  bullet: string;
+  section: "experience" | "skills" | "projects";
+  reasoning: string;
+  for_skill: string;
+}
+
+// Update Application interface — add improvement_plan:
+export interface Application {
+  id: string;
+  candidate_id: string;
+  job_id: string;
+  resume_id: string;
+  stage: ApplicationStage;
+  cover_letter?: string;
+  recruiter_notes?: string;
+  rejection_reason?: string;
+  improvement_plan?: ImprovementPlanItem[];  // ← add
+  applied_at: string;
+  ats_score?: AtsScore;
+  job?: Job;
+  candidate?: Candidate;
+  resume?: Resume;
 }
 
 export interface EducationEntry {
@@ -167,6 +216,7 @@ export interface Application {
   job?: Job;
   candidate?: Candidate;
   resume?: Resume;
+  improvement_plan?:ImprovementPlanItem[]
 }
 
 
@@ -343,103 +393,4 @@ export interface StageUpdateForm {
   stage: ApplicationStage;
   recruiter_notes?: string;
   rejection_reason?: string;
-}
-
-
-export interface BuilderTemplate {
-  id: string;
-  name: string;
-  description: string;
-  layout: "single-column" | "two-column" | "skills-first";
-  section_order: string[];
-  tone: string;
-  keyword_density: "high" | "medium";
-  accent_color: string;
-  font_family: string;
-  best_for: string[];
-}
-
-export interface BuilderAtsPreview {
-  final_score: number;
-  label: "excellent" | "good" | "fair" | "weak";
-  keyword_score: number;
-  semantic_score: number;
-  experience_score: number;
-  section_quality_score: number;
-  matched_skills: string[];
-  missing_skills: string[];
-}
-
-export interface BuilderExperienceEntry {
-  role: string;
-  company: string;
-  date_range: string;
-  impact_points: string[];
-}
-
-export interface BuilderEducationEntry {
-  degree: string;
-  institution: string;
-  year: string;
-  gpa: string;
-}
-
-export interface BuilderProjectEntry {
-  name: string;
-  description: string;
-  tech_used: string[];
-}
-
-export interface BuilderContent {
-  summary: string;
-  skills: string[];
-  experience: BuilderExperienceEntry[];
-  education: BuilderEducationEntry[];
-  certifications: string[];
-  projects: BuilderProjectEntry[];
-}
-
-export interface BuildResult {
-  draft_id: string;
-  content: BuilderContent;
-  ats_preview: BuilderAtsPreview;
-  template: BuilderTemplate;
-  job_id: string;
-  job_title: string;
-  iteration_count: number;
-  llm_used: boolean;
-}
-
-export type DraftStatus = "draft" | "refined" | "finalized";
-
-export interface ResumeDraft {
-  id: string;
-  candidate_id: string;
-  job_id: string | null;
-  template_id: string;
-  status: DraftStatus;
-  predicted_score: number | null;
-  iteration_count: number;
-  is_finalized: boolean;
-  created_at: string;
-  updated_at: string;
-  // Present in GET /resume-builder/drafts/<id> only
-  content?: BuilderContent;
-  score_breakdown?: {
-    keyword_score: number;
-    semantic_score: number;
-    experience_score: number;
-    section_quality_score: number;
-    label: string;
-  };
-  matched_skills?: string[];
-  missing_skills?: string[];
-}
-
-export interface SaveDraftResult {
-  resume_id: string;
-  draft_id: string;
-  final_score: number;
-  score_label: string;
-  ats_score_id: string;
 }

@@ -35,7 +35,6 @@ class JobRecommendationsSchema(BaseSchema):
     """Validates POST /api/v1/scores/job-recommendations."""
     resume_id = fields.String(required=True)
     top_n     = fields.Integer(load_default=10, validate=validate.Range(min=1, max=50))
-    status    = fields.String(load_default="active")
     # Filter to only recommend jobs with this status
 
 

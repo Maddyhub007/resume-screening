@@ -82,7 +82,7 @@ class RecruiterAnalyticsService:
             {stage_name: count, ...}
         """
         try:
-            jobs = self._job_repo.list_by_recruiter(recruiter_id, include_closed=True , with_count=False, page=None, limit=None,)
+            jobs = self._job_repo.list_by_recruiter(recruiter_id, include_closed=True, with_count=False, page=None, limit=None,)
             if not jobs:
                 return {}
 
@@ -160,7 +160,7 @@ class RecruiterAnalyticsService:
         all_scores = []
         score_dist = {"excellent": 0, "good": 0, "fair": 0, "weak": 0}
         for job in all_jobs:
-            job_scores, _ = self._ats_repo.list_by_job(job_id=job.id, page=1 ,limit=200)
+            job_scores, _ = self._ats_repo.list_by_job(job_id=job.id, page=1, limit=200)
             for s in job_scores:
                 all_scores.append(s.final_score)
                 label = s.score_label

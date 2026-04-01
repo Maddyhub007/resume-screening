@@ -1,32 +1,38 @@
 "use client";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useQuery } from "@tanstack/react-query";
-import { api, queryKeys } from "@/lib/api/client";
+import { api, queryKeys, getClientToken } from "@/lib/api/client";
 import { CardSkeleton, ScoreBadge, SkillBadge, EmptyState, StageBadge } from "@/components/shared";
 import { formatRelativeDate, formatSalary } from "@/lib/utils/formatters";
 import { Briefcase, FileText, ClipboardList, TrendingUp, ChevronRight, Plus } from "lucide-react";
 import Link from "next/link";
-import { JobRecommendation } from "@/lib/types";
+import { JobRecommendation, Resume } from "@/lib/types";
 
 export default function CandidateDashboard() {
-  const { userId, userName } = useAuthStore();
+  const { userId, userName, isRefreshing  } = useAuthStore();
 
   const { data: candidateData } = useQuery({
-    queryKey: queryKeys.candidate(userId!),
-    queryFn: () => api.getCandidate(userId!),
-    enabled: !!userId,
-  });
+  queryKey: queryKeys.candidate(userId!),
+  queryFn: () => api.getCandidate(userId!),
+  enabled: !!userId && !isRefreshing && !!getClientToken(), // ← add guards
+});
 
   const { data: resumesData } = useQuery({
     queryKey: queryKeys.candidateResumes(userId!),
     queryFn: () => api.getCandidateResumes(userId!),
-    enabled: !!userId,
+    enabled: !!userId && !isRefreshing && !!getClientToken(),
   });
 
   const { data: applicationsData } = useQuery({
     queryKey: queryKeys.applications({ candidate_id: userId! }),
     queryFn: () => api.listApplications({ candidate_id: userId!, limit: 5 }),
-    enabled: !!userId,
+    enabled: !!userId && !isRefreshing && !!getClientToken(),
+  });
+
+  const { data: winRateData } = useQuery({
+    queryKey: ["win-rate-insights", userId],
+    queryFn:  () => api.getCandidateWinRateInsights(userId!),
+    enabled:  !!userId && !isRefreshing && !!getClientToken(),
   });
 
   const activeResume = resumesData?.data?.find((r) => r.is_active && r.parse_status === "success");
@@ -36,6 +42,12 @@ export default function CandidateDashboard() {
     queryKey: ["job-recommendations", activeResume?.id],
     queryFn: () => api.jobRecommendations(activeResume!.id, { top_n: 6 }),
     enabled: !!activeResume?.id,
+  });
+
+  const { data: skillGapsData } = useQuery({
+    queryKey: ["candidate-skill-gaps", userId],
+    queryFn: () => api.getCandidateSkillGaps(userId!),
+    enabled: !!userId && !isRefreshing && !!getClientToken(),
   });
 
   const applications = applicationsData?.data ?? [];
@@ -72,6 +84,18 @@ export default function CandidateDashboard() {
           </Link>
         ))}
       </div>
+
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <ReadinessScore resumes={resumesData?.data ?? []} applications={applications} />
+        <SkillGapHeatmap gaps={skillGapsData?.data?.skill_gaps ?? []} />
+      </div>
+
+      {(winRateData?.data?.top_performing_skills?.length ?? 0) > 0 && (
+        <div className="mb-6">
+          <WinRateInsights insights={winRateData!.data!.top_performing_skills} />
+        </div>
+      )}
+
 
       <div className="grid grid-cols-5 gap-6">
         {/* Job recommendations */}
@@ -127,7 +151,7 @@ export default function CandidateDashboard() {
                     <Briefcase className="w-4 h-4 text-text-muted" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-text-primary truncate">Job Application</div>
+                    <div className="text-sm font-medium text-text-primary truncate">{app.job?.title ?? "Job Application"}</div>
                     <div className="text-xs text-text-muted">{formatRelativeDate(app.applied_at)}</div>
                   </div>
                   <StageBadge stage={app.stage} />
@@ -162,5 +186,187 @@ function RecommendationCard({ rec }: { rec: JobRecommendation }) {
         </div>
       </div>
     </Link>
+  );
+}
+
+
+// Add this component at the bottom of the file
+function ReadinessScore({ resumes, applications }: {
+  resumes: Resume[];
+  applications: any[];
+}) {
+  const activeResume = resumes.find((r) => r.is_active);
+  const parsedResume = resumes.find((r) => r.parse_status === "success");
+
+  // Compute score components
+  const components = [
+    {
+      label: "Active Resume",
+      score: activeResume ? 25 : 0,
+      max: 25,
+      tip: activeResume ? "Active resume set" : "Set a resume as active",
+    },
+    {
+      label: "Resume Parsed",
+      score: parsedResume ? 20 : 0,
+      max: 20,
+      tip: parsedResume ? "Resume successfully parsed" : "Upload a parseable resume",
+    },
+    {
+      label: "Skills",
+      score: Math.min(20, Math.round(((parsedResume?.skill_count ?? 0) / 10) * 20)),
+      max: 20,
+      tip: `${parsedResume?.skill_count ?? 0} skills detected (10+ for full score)`,
+    },
+    {
+      label: "Experience",
+      score: Math.min(15, Math.round(((parsedResume?.total_experience_years ?? 0) / 2) * 15)),
+      max: 15,
+      tip: `${parsedResume?.total_experience_years?.toFixed(1) ?? 0} years (2+ for full score)`,
+    },
+    {
+      label: "Applications",
+      score: Math.min(20, applications.length * 4),
+      max: 20,
+      tip: `${applications.length} applications submitted`,
+    },
+  ];
+
+  const total = components.reduce((sum, c) => sum + c.score, 0);
+  const label =
+    total >= 80 ? { text: "Job Ready", color: "text-emerald-400" } :
+    total >= 60 ? { text: "Good Progress", color: "text-electric-400" } :
+    total >= 40 ? { text: "Getting Started", color: "text-amber-400" } :
+                  { text: "Needs Attention", color: "text-red-400" };
+
+  const circumference = 2 * Math.PI * 40;
+  const strokeDash = (total / 100) * circumference;
+
+  return (
+    <div className="card p-6">
+      <h3 className="font-display font-semibold text-text-primary mb-4">
+        Job Readiness Score
+      </h3>
+      <div className="flex items-center gap-6">
+        {/* Circular progress */}
+        <div className="relative flex-shrink-0">
+          <svg width="100" height="100" className="-rotate-90">
+            <circle cx="50" cy="50" r="40" fill="none"
+              stroke="currentColor" strokeWidth="8"
+              className="text-charcoal-700" />
+            <circle cx="50" cy="50" r="40" fill="none"
+              stroke="currentColor" strokeWidth="8"
+              strokeDasharray={`${strokeDash} ${circumference}`}
+              strokeLinecap="round"
+              className={
+                total >= 80 ? "text-emerald-400" :
+                total >= 60 ? "text-electric-400" :
+                total >= 40 ? "text-amber-400" : "text-red-400"
+              }
+              style={{ transition: "stroke-dasharray 0.8s ease" }}
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className={`font-display text-xl font-bold ${label.color}`}>{total}</span>
+            <span className="text-text-muted text-[10px]">/ 100</span>
+          </div>
+        </div>
+        
+
+        {/* Breakdown */}
+        <div className="flex-1 space-y-2">
+          <p className={`font-semibold text-sm ${label.color} mb-3`}>{label.text}</p>
+          {components.map((c) => (
+            <div key={c.label} className="flex items-center gap-2">
+              <div className="w-24 text-xs text-text-muted flex-shrink-0">{c.label}</div>
+              <div className="flex-1 h-1.5 bg-charcoal-700 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    c.score === c.max ? "bg-emerald-400" :
+                    c.score > 0 ? "bg-electric-500" : "bg-charcoal-600"
+                  }`}
+                  style={{ width: `${(c.score / c.max) * 100}%` }}
+                />
+              </div>
+              <span className="text-xs text-text-muted w-10 text-right">
+                {c.score}/{c.max}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SkillGapHeatmap({ gaps }: {
+  gaps: { skill: string; count: number; pct: number }[]
+}) {
+  if (!gaps || gaps.length === 0) return null;
+  const max = gaps[0]?.count ?? 1;
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-display font-semibold text-text-primary">
+          Skills to Learn
+        </h3>
+        <span className="text-xs text-text-muted">Most missed across applications</span>
+      </div>
+      <div className="space-y-2.5">
+        {gaps.slice(0, 8).map((g) => (
+          <div key={g.skill} className="flex items-center gap-3">
+            <span className="text-sm text-text-secondary w-28 truncate capitalize flex-shrink-0">
+              {g.skill}
+            </span>
+            <div className="flex-1 h-2 bg-charcoal-800 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-amber-500 to-red-500"
+                style={{ width: `${(g.count / max) * 100}%` }}
+              />
+            </div>
+            <span className="text-xs text-text-muted w-16 text-right flex-shrink-0">
+              {g.count} app{g.count !== 1 ? "s" : ""}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+function WinRateInsights({ insights }: {
+  insights: { skill: string; win_rate: number; wins: number; total: number }[]
+}) {
+  if (!insights || insights.length === 0) return null;
+
+  return (
+    <div className="card p-6">
+      <h3 className="font-display font-semibold text-text-primary mb-4">
+        Your Winning Skills
+      </h3>
+      <p className="text-xs text-text-muted mb-3">
+        Skills that correlate with interview callbacks
+      </p>
+      <div className="space-y-2.5">
+        {insights.map((item) => (
+          <div key={item.skill} className="flex items-center gap-3">
+            <span className="text-sm text-text-secondary w-28 truncate capitalize flex-shrink-0">
+              {item.skill}
+            </span>
+            <div className="flex-1 h-2 bg-charcoal-800 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-electric-500 to-emerald-400"
+                style={{ width: `${item.win_rate * 100}%` }}
+              />
+            </div>
+            <span className="text-xs text-emerald-400 w-12 text-right flex-shrink-0">
+              {Math.round(item.win_rate * 100)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

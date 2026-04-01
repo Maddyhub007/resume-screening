@@ -1,6 +1,6 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
-import { api, queryKeys } from "@/lib/api/client";
+import { api, queryKeys, getClientToken } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/store/authStore";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -29,20 +29,18 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function RecruiterDashboard() {
-  const { userId, userName } = useAuthStore();
+  const { userId, userName, role, isRefreshing } = useAuthStore();
 
-  // GET /recruiters/<id>/analytics — full dashboard (pipeline_funnel, score_distribution, top_jobs, avg_score, kpis)
   const { data: dashData, isLoading } = useQuery({
-    queryKey: queryKeys.recruiterAnalytics(userId!),
-    queryFn: () => api.getRecruiterAnalytics(userId!),
-    enabled: !!userId,
+  queryKey: queryKeys.recruiterAnalytics(userId!),
+  queryFn: () => api.getRecruiterAnalytics(userId!),
+  enabled: !!userId && role === "recruiter" && !isRefreshing && !!getClientToken(),
   });
 
-  // GET /recruiters/<id>/jobs?status=active — quick links to active jobs
   const { data: jobsData } = useQuery({
     queryKey: queryKeys.recruiterJobs(userId!, "active"),
     queryFn: () => api.getRecruiterJobs(userId!, { status: "active", limit: 5 }),
-    enabled: !!userId,
+    enabled: !!userId && role === "recruiter" && !isRefreshing && !!getClientToken(),
   });
 
   const dash = dashData?.data;

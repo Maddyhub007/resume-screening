@@ -166,7 +166,7 @@ class RefreshToken(BaseModel):
         """Mark this token as revoked."""
         self.revoked    = True
         self.revoked_at = datetime.now(timezone.utc)
-        db.session.flush()
+        
 
     def is_valid(self) -> bool:
         """True if the token has not been revoked and has not expired."""

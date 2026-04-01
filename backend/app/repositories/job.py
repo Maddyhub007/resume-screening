@@ -5,13 +5,12 @@ app/repositories/job.py — Job-specific data access methods.
 
 import logging
 
-from sqlalchemy import and_, or_
 
 from app.core.database import db
 from app.models.enums import JobStatus
 from app.models.job import Job
 from app.repositories.base import BaseRepository
-
+from sqlalchemy import or_
 logger = logging.getLogger(__name__)
 
 

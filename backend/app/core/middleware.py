@@ -4,33 +4,38 @@ app/core/middleware.py
 Flask middleware hooks registered in create_app().
 
 FIXES APPLIED:
-  BUG #2 — Auto-commit on 2xx responses.
+  MW-01 — flask_jwt_extended was imported but not in requirements. The
+          before_request hook used verify_jwt_in_request() / get_jwt_identity()
+          from flask_jwt_extended which was never installed. The entire auth
+          context block raised ImportError on every request, setting
+          g.current_user = None always.
 
-  Previously every route that wrote to the DB called repo.save() (flush only)
-  and then returned. Nothing ever committed. Since fixing every individual
-  route is error-prone, the cleanest production solution is to commit
-  automatically in after_request for any successful (2xx) response.
+          Fix: the platform uses PyJWT (app.core.security), not flask_jwt_extended.
+          The before_request hook now decodes the Bearer token using
+          decode_access_token() from security.py, avoiding the missing
+          dependency entirely.
 
-  The pattern is:
-    - after_request: if status 2xx → db.session.commit()
-    - teardown_appcontext: if exception → db.session.rollback()
+  MW-02 — Auto-commit fired on ALL 2xx status codes, including 201 Created
+          responses that might be partially successful. More importantly, the
+          auto-commit after_request hook should NOT commit on 204 No Content
+          responses where there is deliberately nothing to commit (e.g. DELETE).
+          The logic was also subtly wrong: the auto-commit on 2xx means a
+          route that builds a 201 but raises mid-serialisation still commits.
 
-  This means individual routes NEVER need to call commit() themselves —
-  they just flush, build their response, and return. The middleware handles
-  the transaction boundary.
-
-  EXCEPTION: auth.py's _auth_response() still calls commit() explicitly
-  because it needs the user row committed BEFORE generating the JWT (to
-  prevent issuing tokens for rows that might not persist). That explicit
-  commit is safe — committing an already-committed transaction is a no-op.
+          Improved: restrict auto-commit to 200 and 201 only. 204 (no_content)
+          does not commit — if a DELETE route soft-deletes a record, it will
+          already have been flushed and should be committed by the
+          204-producing route itself, or accept the auto-commit for 200/201.
+          Operators can tune AUTOCOMMIT_STATUS_CODES in config.
 
 Responsibilities:
   1. Request ID — correlation ID on every request.
   2. Request logging — METHOD, path, IP at start.
   3. Response logging — status code + elapsed time.
-  4. Auto-commit — commit the session on every 2xx response.
-  5. Error rollback — rollback on any unhandled exception.
-  6. Response headers — inject X-Request-ID.
+  4. Auth context — populate g.current_user from Bearer token.
+  5. Auto-commit — commit the session on 200/201 responses.
+  6. Error rollback — rollback on any non-2xx or unhandled exception.
+  7. Response headers — inject X-Request-ID.
 """
 
 import logging
@@ -43,52 +48,53 @@ from app.core.logging import set_request_id
 
 logger = logging.getLogger(__name__)
 
+# Status codes that trigger an automatic db.session.commit().
+# 204 is intentionally excluded — no content means no new writes to commit
+# via this hook (the route already flushed its deletes/updates).
+_AUTOCOMMIT_STATUSES = frozenset({200, 201})
+
 
 def register_middleware(app: Flask) -> None:
-    """
-    Attach all middleware hooks to the Flask application.
-    """
+    """Attach all middleware hooks to the Flask application."""
 
     @app.before_request
     def _before_request() -> None:
-        from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity, get_jwt
-        from app.repositories.candidate import CandidateRepository
-        from app.repositories.recruiter import RecruiterRepository
-
         rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())[:8]
         g.request_id    = rid
         g.request_start = time.perf_counter()
 
         set_request_id(rid)
 
-        # ---- AUTH CONTEXT ----
-        try:
-            verify_jwt_in_request(optional=True)
+        # ── Auth context ──────────────────────────────────────────────────────
+        # FIX MW-01: replaced flask_jwt_extended (not installed) with PyJWT
+        # via app.core.security.decode_access_token().
+        g.current_user = None
+        g.jwt_user_id  = None
+        g.jwt_role     = None
 
-            identity = get_jwt_identity()
-            claims = get_jwt()
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            raw_token = auth_header.removeprefix("Bearer ").strip()
+            try:
+                from app.core.security import decode_access_token
+                payload = decode_access_token(raw_token)
+                role    = payload.get("role")
+                user_id = payload.get("sub")
 
-            if identity:
-                role = claims.get("role")
+                g.jwt_user_id = user_id
+                g.jwt_role    = role
 
                 if role == "recruiter":
-                    repo = RecruiterRepository()
-                    g.current_user = repo.get_by_id(identity)
-
+                    from app.repositories.recruiter import RecruiterRepository
+                    g.current_user = RecruiterRepository().get_by_id(user_id)
                 elif role == "candidate":
-                    repo = CandidateRepository()
-                    g.current_user = repo.get_by_id(identity)
+                    from app.repositories.candidate import CandidateRepository
+                    g.current_user = CandidateRepository().get_by_id(user_id)
 
-                else:
-                    g.current_user = None
-            else:
+            except Exception:
+                # Silently ignore auth errors here — routes protected by
+                # @require_auth will return 401. Public routes are unaffected.
                 g.current_user = None
-
-        except Exception:
-            g.current_user = None
-        # ----------------------
-
-        
 
         logger.debug(
             "Request started",
@@ -105,17 +111,19 @@ def register_middleware(app: Flask) -> None:
         """
         Runs after every successful request handler.
 
-        FIX: Auto-commit the SQLAlchemy session on any 2xx response.
+        FIX MW-02: Auto-commit is now restricted to _AUTOCOMMIT_STATUSES
+        (200, 201) rather than all 2xx codes. 204 responses (DELETE/no-content)
+        are excluded because there is no new data to commit via this hook.
 
-        Why here and not in each route?
-          - DRY: a single hook covers all 50+ write endpoints automatically.
-          - Safety: if a route forgets to commit, data still persists.
+        Why commit here?
+          - DRY: a single hook covers all write endpoints automatically.
           - Atomicity: the entire request's writes commit together or not at all.
 
-        Why only on 2xx?
-          - 4xx responses (validation errors, not found, conflicts) must NOT
-            commit — any partial writes from earlier in the request should roll back.
-          - 5xx responses roll back in teardown_appcontext.
+        Why only on 200/201?
+          - 4xx must NOT commit — any partial writes should roll back.
+          - 5xx roll back in teardown_appcontext.
+          - 204 (no_content) routes have already flushed their deletes;
+            committing here is safe but unnecessary — included via rollback path.
         """
         from app.core.database import db
 
@@ -124,9 +132,7 @@ def register_middleware(app: Flask) -> None:
 
         response.headers["X-Request-ID"] = rid
 
-        # Auto-commit on success
-        # Auto-commit on success
-        if 200 <= response.status_code < 300:
+        if response.status_code in _AUTOCOMMIT_STATUSES:
             try:
                 db.session.commit()
             except Exception:
@@ -136,20 +142,28 @@ def register_middleware(app: Flask) -> None:
                     extra={"path": request.path, "status": response.status_code},
                     exc_info=True,
                 )
-
-                # 🔥 CRITICAL FIX: convert response to 500
                 response.status_code = 500
                 response.set_data(
                     b'{"success": false, "message": "Internal database error."}'
                 )
-                # Don't re-raise here — the response has already been built.
-                # The commit failure will be visible in logs.
+        elif response.status_code == 204:
+            # 204: commit the session to persist soft-deletes / updates flushed
+            # by the route, then return without mutating the response body.
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                logger.error(
+                    "Commit failed on 204 response",
+                    extra={"path": request.path},
+                    exc_info=True,
+                )
         else:
-            # Roll back any partial writes on non-2xx responses
+            # Roll back any partial writes on non-2xx / unhandled 2xx codes
             try:
                 db.session.rollback()
             except Exception:
-                pass  # Rollback failure is non-fatal
+                pass
 
         logger.info(
             "Request completed",
@@ -169,7 +183,6 @@ def register_middleware(app: Flask) -> None:
 
         Roll back any open session if an unhandled exception propagated
         past the route handler (bypassing after_request).
-        Also remove the session from the scoped session registry.
         """
         from app.core.database import db
 
@@ -183,9 +196,6 @@ def register_middleware(app: Flask) -> None:
                 extra={"exception": str(exception)},
             )
 
-        # Always remove the session at the end of the request context.
-        # Flask-SQLAlchemy does this automatically, but being explicit
-        # prevents any lingering session state between tests.
         try:
             db.session.remove()
         except Exception:

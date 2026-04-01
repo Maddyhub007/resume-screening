@@ -4,7 +4,7 @@ import {
   Application, AtsScore, ScoreMatchResult, RankedCandidate, JobRecommendation,
   JobEnhancement, RecruiterDashboard, PipelineData,
   CreateCandidateForm, CreateRecruiterForm, CreateJobForm, StageUpdateForm,
-  SkillGapSingle, BuilderTemplate, BuilderContent, BuilderAtsPreview, BuildResult, ResumeDraft, SaveDraftResult,
+  SkillGapSingle, 
 } from "@/lib/types";
 
 // ─── Auth response shape ───────────────────────────────────────────────────────
@@ -101,6 +101,9 @@ export const queryKeys = {
   candidate:                 (id: string) => ["candidate", id] as const,
   candidateResumes:          (id: string) => ["candidate", id, "resumes"] as const,
   candidateRecommendations:  (id: string) => ["candidate", id, "recommendations"] as const,
+  candidateSkillGaps:    (id: string) => ["candidate", id, "skill-gaps"] as const,
+  candidateWinRate:      (id: string) => ["candidate", id, "win-rate"] as const,
+  applicationAiSummary:  (id: string) => ["application", id, "ai-summary"] as const,
   recruiters:                (p?: number, l?: number, q?: string) => ["recruiters", p, l, q] as const,
   recruiter:                 (id: string) => ["recruiter", id] as const,
   recruiterJobs:             (id: string, status?: string) => ["recruiter", id, "jobs", status] as const,
@@ -113,6 +116,8 @@ export const queryKeys = {
   jobPerformance:            (id: string) => ["job", id, "performance"] as const,
   resumes:                   (p?: number, l?: number) => ["resumes", p, l] as const,
   resume:                    (id: string) => ["resume", id] as const,
+  resumeSummary:        (id: string) => ["resume", id, "summary"] as const,
+  rewriteSuggestions:   (resumeId: string, jobId: string) => ["rewrite", resumeId, jobId] as const,
   scorePreview:              (resumeId: string, jobId: string) => ["score-preview", resumeId, jobId] as const,
   applications:              (filters?: Record<string, string>) => ["applications", filters] as const,
   application:               (id: string) => ["application", id] as const,
@@ -122,10 +127,6 @@ export const queryKeys = {
   analyticsScoreDist:        (recruiterId: string) => ["analytics", recruiterId, "score-dist"] as const,
   analyticsSkillsDemand:     (recruiterId: string) => ["analytics", recruiterId, "skills"] as const,
   analyticsTopJobs:          (recruiterId: string) => ["analytics", recruiterId, "top-jobs"] as const,
-  builderTemplates: () => ["builder", "templates"] as const,
-  builderJobs:      (p?: number, s?: string) => ["builder", "jobs", p, s] as const,
-  builderDrafts:    (status?: string, p?: number) => ["builder", "drafts", status, p] as const,
-  builderDraft:     (id: string) => ["builder", "draft", id] as const,
 };
 
 // ─── Token storage (module-level memory — survives re-renders, cleared on reload) ─
@@ -385,6 +386,23 @@ export const api = {
       `/candidates/${id}/recommendations`, params
     ),
 
+  getCandidateSkillGaps: (candidateId: string) =>
+  get<{
+    skill_gaps: { skill: string; count: number; pct: number }[];
+    total_applications_scored: number;
+  }>(`/candidates/${candidateId}/skill-gaps`),
+
+  getCandidateWinRateInsights: (candidateId: string) =>
+    get<{
+      top_performing_skills: {
+        skill: string;
+        win_rate: number;
+        wins: number;
+        total: number;
+      }[];
+      total_applications: number;
+    }>(`/candidates/${candidateId}/win-rate-insights`),
+
   // ── Recruiters ────────────────────────────────────────────────────────────
   listRecruiters: (page = 1, limit = 20, params?: Record<string, unknown>) =>
     get<Recruiter[]>("/recruiters", { page, limit, ...params }),
@@ -434,6 +452,25 @@ export const api = {
     post<Resume>(`/resumes/${id}/analyze`, { force_refresh: forceRefresh }),
   getScorePreview: (resumeId: string, jobId: string) =>
     get<ScoreMatchResult>(`/resumes/${resumeId}/score-preview`, { job_id: jobId }),
+  generateResumeSummary: (resumeId: string, targetRole?: string) =>
+  post<{ summary: string; resume: Resume }>(
+    `/resumes/${resumeId}/generate-summary`,
+    { target_role: targetRole ?? "" }
+  ),
+  getRewriteSuggestions: (resumeId: string, jobId: string) =>
+    post<{
+      missing_skills: string[];
+      suggestions: {
+        bullet: string;
+        section: string;
+        reasoning: string;
+        for_skill: string;
+      }[];
+      job_title: string;
+    }>(`/resumes/${resumeId}/rewrite-suggestions`, { job_id: jobId }),
+
+  setActiveResume: (resumeId: string) =>
+    patch<Resume>(`/resumes/${resumeId}/set-active`),
 
   // ── Applications ──────────────────────────────────────────────────────────
   listApplications: (params?: Record<string, unknown>) =>
@@ -447,6 +484,10 @@ export const api = {
   withdrawApplication: (id: string) => del<Application>(`/applications/${id}`),
   scoreApplication: (id: string, useLlm = true) =>
     post<AtsScore>(`/applications/${id}/score`, { use_llm: useLlm }),
+  getApplicationAiSummary: (applicationId: string) =>
+    get<{ summary: string; recommendation: string }>(
+      `/applications/${applicationId}/ai-summary`
+    ),
 
   // ── Scoring ───────────────────────────────────────────────────────────────
   scoreMatch: (resumeId: string, jobId: string, saveResult = true) =>
@@ -491,47 +532,4 @@ export const api = {
       "/analytics/top-jobs", { recruiter_id: recruiterId, top_n: topN }
     ),
 
-    // ── Resume Builder ──────────────────────────────────────────────────────────
-  // GET /resume-builder/templates  (no auth)
-  listBuilderTemplates: () =>
-    get<BuilderTemplate[]>("/resume-builder/templates"),
-
-  // GET /resume-builder/jobs?search=&location=&job_type=&page=&limit=
-  listBuilderJobs: (params?: Record<string, unknown>) =>
-    get<Job[]>("/resume-builder/jobs", params),
-
-  // POST /resume-builder/generate
-  // Body: { job_id, user_prompt?, template_id? }
-  generateResume: (body: {
-    job_id: string;
-    user_prompt?: string;
-    template_id?: string;
-  }) => post<BuildResult>("/resume-builder/generate", body),
-
-  // POST /resume-builder/refine  Body: { draft_id }
-  refineResume: (body: { draft_id: string }) =>
-    post<BuildResult>("/resume-builder/refine", body),
-
-  // POST /resume-builder/predict-score  Body: { job_id, content }
-  // Read-only scoring — no draft row modified
-  predictScore: (body: { job_id: string; content: BuilderContent }) =>
-    post<BuilderAtsPreview>("/resume-builder/predict-score", body),
-
-  // POST /resume-builder/save-draft  Body: { draft_id, content? }
-  saveDraft: (body: { draft_id: string; content?: BuilderContent }) =>
-    post<SaveDraftResult>("/resume-builder/save-draft", body),
-
-  // GET /resume-builder/drafts?status=&page=&limit=
-  listBuilderDrafts: (params?: Record<string, unknown>) =>
-    get<ResumeDraft[]>("/resume-builder/drafts", params),
-
-  // GET /resume-builder/drafts/<id>
-  getBuilderDraft: (draftId: string) =>
-    get<ResumeDraft>(`/resume-builder/drafts/${draftId}`),
-
-  // POST /resume-builder/drafts/<id>/feedback
-  submitDraftFeedback: (
-    draftId: string,
-    body: { shortlisted: boolean; interview_stage?: string; hired?: boolean }
-  ) => post<{ message: string }>(`/resume-builder/drafts/${draftId}/feedback`, body),
-};
+}

@@ -135,6 +135,16 @@ class ResumeAnalysisService:
                 raw_text_length=len(resume.raw_text or ""),
             )
 
+            sq_missing = self._sq.get_missing_sections(
+                skills=resume.skills_list,
+                experience=resume.experience_list,
+                education=resume.education_list,
+                summary_text=resume.summary_text or "",
+                certifications=resume.certifications_list,
+                projects=resume.projects_list,
+                raw_text_length=len(resume.raw_text or ""),
+            )
+
             # ── 3. LLM analysis ───────────────────────────────────────────────
             llm_enhanced = False
             if use_llm and self._groq and self._groq.available:
@@ -153,7 +163,7 @@ class ResumeAnalysisService:
             else:
                 # Rule-based fallback
                 summary, strengths, issues, role_suggestions, improvement_tips = (
-                    self._rule_based_analysis(resume, sq_score)
+                    self._rule_based_analysis(resume, sq_score, sq_missing)
                 )
 
             # ── 4. Persist analysis fields ────────────────────────────────────
@@ -189,11 +199,21 @@ class ResumeAnalysisService:
         resume.summary_text          = parse_result.summary_text
         resume.total_experience_years = parse_result.total_experience_years
         resume.skill_count           = parse_result.skill_count
+        try:
+            resume.contact_info = parse_result.contact
+        except (AttributeError, Exception):
+            pass
+
+        try:
+            resume.oov_skills_list = parse_result.oov_skills
+        except (AttributeError, Exception):
+            pass
 
     def _rule_based_analysis(
         self,
         resume,
         sq_score: float,
+        missing_sections
     ) -> tuple[str, list, list, list, list]:
         """Fallback analysis without LLM."""
         skills = resume.skills_list
@@ -214,10 +234,10 @@ class ResumeAnalysisService:
 
         # Issues from missing sections
         issues = []
-        if sq_score < 0.7:
+        if missing_sections:
             issues.append({
                 "type": "missing_section",
-                "description": "Resume is missing important sections.",
+                "description": f"Resume is missing sections: {', '.join(missing_sections)}",
                 "severity": "medium",
             })
 
@@ -245,10 +265,20 @@ class ResumeAnalysisService:
 
         # Basic improvement tips
         improvement_tips = []
-        if len(skills) < 5:
+        oov = getattr(resume, "oov_skills_list", [])
+        all_skills_count = len(skills) + len(oov)
+        if all_skills_count < 5:
             improvement_tips.append({
                 "category": "skills",
                 "tip": "Add more technical skills to improve job match visibility.",
+            })
+        if oov:
+            improvement_tips.append({
+                "category": "skills",
+                "tip": (
+                    f"Resume mentions {len(oov)} unrecognised skill(s): "
+                    f"{', '.join(oov[:5])}. Verify spelling or use standard names."
+                ),
             })
 
         return summary, strengths, issues, role_suggestions, improvement_tips
