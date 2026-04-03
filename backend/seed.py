@@ -57,7 +57,7 @@ INDUSTRIES = [
 
 COMPANY_SIZES = ["1-10", "11-50", "51-200", "201-500", "500+"]
 
-JOB_TYPES = ["full_time", "part_time", "contract", "internship"]
+JOB_TYPES = ["full-time", "part-time", "contract", "internship"]
 
 JOB_STATUSES = ["active", "closed", "draft"]
 

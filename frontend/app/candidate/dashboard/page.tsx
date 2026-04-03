@@ -85,7 +85,7 @@ export default function CandidateDashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      {/* <div className="grid grid-cols-2 gap-4 mb-6">
         <ReadinessScore resumes={resumesData?.data ?? []} applications={applications} />
         <SkillGapHeatmap gaps={skillGapsData?.data?.skill_gaps ?? []} />
       </div>
@@ -94,7 +94,7 @@ export default function CandidateDashboard() {
         <div className="mb-6">
           <WinRateInsights insights={winRateData!.data!.top_performing_skills} />
         </div>
-      )}
+      )} */}
 
 
       <div className="grid grid-cols-5 gap-6">

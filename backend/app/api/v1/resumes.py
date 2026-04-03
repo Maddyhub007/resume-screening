@@ -188,15 +188,6 @@ def analyze_resume(resume_id: str):
 
 @resumes_bp.get("/<resume_id>/score-preview")
 def score_preview(resume_id: str):
-    """
-    GET /api/v1/resumes/<resume_id>/score-preview?job_id=<job_id>
-
-    Compute ATS score for a resume/job pair WITHOUT saving the result.
-    Useful for live UI previews.
-
-    Query params:
-      job_id  (required)
-    """
     job_id = request.args.get("job_id")
     if not job_id:
         return error("job_id query parameter is required.", code="MISSING_PARAM", status=400)
@@ -206,40 +197,87 @@ def score_preview(resume_id: str):
 
         resume = ResumeRepository().get_by_id(resume_id)
         if not resume or getattr(resume, "is_deleted", False):
-            return error(f"Resume '{resume_id}' not found.", code="RESUME_NOT_FOUND", status=404)
+            return error(f"Resume not found.", code="RESUME_NOT_FOUND", status=404)
 
         job = JobRepository().get_by_id(job_id)
         if not job or getattr(job, "is_deleted", False):
-            return error(f"Job '{job_id}' not found.", code="JOB_NOT_FOUND", status=404)
+            return error(f"Job not found.", code="JOB_NOT_FOUND", status=404)
 
-        svcs   = get_services()
+        svcs = get_services()
+
+        resume_skills      = getattr(resume, "skills_list", []) or []
+        resume_experience  = getattr(resume, "experience_list", []) or []
+        resume_education   = getattr(resume, "education_list", []) or []
+        resume_years       = getattr(resume, "total_experience_years", 0.0) or 0.0
+        resume_text        = getattr(resume, "raw_text", "") or ""
+        job_required       = getattr(job, "required_skills_list", []) or []
+        job_nice_to_have   = getattr(job, "nice_to_have_skills_list", []) or []
+        job_years          = getattr(job, "experience_years", 0.0) or 0.0
+        summary_text       = getattr(resume, "summary_text", "") or ""
+
         result = svcs.ats_scorer.score_raw(
-            resume_text=getattr(resume, "raw_text", "") or "",
-            resume_skills=getattr(resume, "skills_list", []) or [],
-            resume_experience=getattr(resume, "experience_list", []) or [],
-            resume_education=getattr(resume, "education_list", []) or [],
-            resume_experience_years=getattr(resume, "total_experience_years", 0.0) or 0.0,
+            resume_text=resume_text,
+            resume_skills=resume_skills,
+            resume_experience=resume_experience,
+            resume_education=resume_education,
+            resume_experience_years=resume_years,
             job_title=getattr(job, "title", ""),
             job_description=getattr(job, "description", ""),
-            job_required_skills=getattr(job, "required_skills_list", []) or [],
-            job_nice_to_have_skills=getattr(job, "nice_to_have_skills_list", []) or [],
-            job_experience_years=getattr(job, "experience_years", 0.0) or 0.0,
+            job_required_skills=job_required,
+            job_nice_to_have_skills=job_nice_to_have,
+            job_experience_years=job_years,
+        )
+
+        # Run explainability to get matched/missing/extra skills + tips
+        explanation = svcs.explainability.explain(
+            final_score=result["final_score"],
+            semantic_score=result["semantic_score"],
+            keyword_score=result["keyword_score"],
+            experience_score=result["experience_score"],
+            section_quality_score=result["section_quality_score"],
+            resume_skills=resume_skills,
+            job_title=getattr(job, "title", ""),
+            job_required_skills=job_required,
+            job_nice_to_have_skills=job_nice_to_have,
+            candidate_years=resume_years,
+            required_years=job_years,
+            use_llm=False,   # no LLM for preview — keep it fast
+            weights=result["weights_used"],
+            semantic_component_scores=result.get("semantic_component_scores", {}),
+        )
+
+        score_label = (
+            "excellent" if result["final_score"] >= 0.80 else
+            "good"      if result["final_score"] >= 0.65 else
+            "fair"      if result["final_score"] >= 0.50 else
+            "weak"
         )
 
         return success(
             data={
-                "resume_id":       resume_id,
-                "job_id":          job_id,
-                "preview":         True,
-                **result,
+                "resume_id":             resume_id,
+                "job_id":                job_id,
+                "preview":               True,
+                "final_score":           result["final_score"],
+                "semantic_score":        result["semantic_score"],
+                "keyword_score":         result["keyword_score"],
+                "experience_score":      result["experience_score"],
+                "section_quality_score": result["section_quality_score"],
+                "semantic_available":    result["semantic_available"],
+                "score_label":           score_label,
+                "matched_skills":        explanation.matched_skills,
+                "missing_skills":        explanation.missing_skills,
+                "extra_skills":          explanation.extra_skills,
+                "improvement_tips":      explanation.improvement_tips,
+                "summary_text":          explanation.summary,
+                "hiring_recommendation": explanation.hiring_recommendation,
+                "weights_used":          result["weights_used"],
             },
             message="Score preview computed (not saved).",
         )
     except Exception:
         logger.error("score_preview failed", exc_info=True)
         return error("Failed to compute score preview.", code="INTERNAL_ERROR", status=500)
-
-
 
 
 # ─────────────────────────────────────────────────────────────────────────────

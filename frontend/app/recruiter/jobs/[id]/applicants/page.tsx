@@ -14,8 +14,8 @@ import { createPortal } from "react-dom";
 
 // Add this map at the top of the file
 const STAGE_TRANSITIONS: Record<ApplicationStage, ApplicationStage[]> = {
-  applied:      ["reviewed", "shortlisted", "rejected", "withdrawn"],
-  reviewed:     ["shortlisted", "interviewing", "rejected", "withdrawn"],
+  applied:      ["reviewed", "rejected", "withdrawn"],
+  reviewed:     ["shortlisted", "rejected", "withdrawn"],
   shortlisted:  ["interviewing", "rejected", "withdrawn"],
   interviewing: ["offered", "rejected", "withdrawn"],
   offered:      ["hired", "rejected", "withdrawn"],

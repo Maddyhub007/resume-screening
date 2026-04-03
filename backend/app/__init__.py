@@ -64,6 +64,7 @@ def create_app(env: str | None = None) -> Flask:
     # ── 1. Resolve config ─────────────────────────────────────────────────────
     config_class = get_config(env)
     app = Flask(__name__)
+    app.url_map.strict_slashes = False
     app.config.from_object(config_class)
 
     # ── 2. Configure logging (must be first — everything after logs) ──────────

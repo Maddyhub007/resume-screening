@@ -68,11 +68,34 @@ TERMINAL_STAGES = frozenset({
 
 # Valid forward transitions: stage → set of allowed next stages
 STAGE_TRANSITIONS: dict[ApplicationStage, frozenset] = {
-    ApplicationStage.APPLIED:      frozenset({ApplicationStage.REVIEWED,    ApplicationStage.REJECTED, ApplicationStage.WITHDRAWN}),
-    ApplicationStage.REVIEWED:     frozenset({ApplicationStage.SHORTLISTED, ApplicationStage.REJECTED, ApplicationStage.WITHDRAWN}),
-    ApplicationStage.SHORTLISTED:  frozenset({ApplicationStage.INTERVIEWING,ApplicationStage.REJECTED, ApplicationStage.WITHDRAWN}),
-    ApplicationStage.INTERVIEWING: frozenset({ApplicationStage.OFFERED,     ApplicationStage.REJECTED, ApplicationStage.WITHDRAWN}),
-    ApplicationStage.OFFERED:      frozenset({ApplicationStage.HIRED,       ApplicationStage.REJECTED, ApplicationStage.WITHDRAWN}),
+    ApplicationStage.APPLIED:      frozenset({
+        ApplicationStage.REVIEWED,
+        ApplicationStage.SHORTLISTED,   # ← add
+        ApplicationStage.INTERVIEWING,  # ← add (power-user skip)
+        ApplicationStage.REJECTED,
+        ApplicationStage.WITHDRAWN,
+    }),
+    ApplicationStage.REVIEWED:     frozenset({
+        ApplicationStage.SHORTLISTED,
+        ApplicationStage.INTERVIEWING,  # ← add
+        ApplicationStage.REJECTED,
+        ApplicationStage.WITHDRAWN,
+    }),
+    ApplicationStage.SHORTLISTED:  frozenset({
+        ApplicationStage.INTERVIEWING,
+        ApplicationStage.REJECTED,
+        ApplicationStage.WITHDRAWN,
+    }),
+    ApplicationStage.INTERVIEWING: frozenset({
+        ApplicationStage.OFFERED,
+        ApplicationStage.REJECTED,
+        ApplicationStage.WITHDRAWN,
+    }),
+    ApplicationStage.OFFERED:      frozenset({
+        ApplicationStage.HIRED,
+        ApplicationStage.REJECTED,
+        ApplicationStage.WITHDRAWN,
+    }),
     ApplicationStage.HIRED:        frozenset(),
     ApplicationStage.REJECTED:     frozenset(),
     ApplicationStage.WITHDRAWN:    frozenset(),

@@ -9,7 +9,7 @@ import { AtsScoreCard } from "@/components/shared/AtsScoreCard";
 import { formatSalary, formatExperience, formatRelativeDate } from "@/lib/utils/formatters";
 import { Search, MapPin, Briefcase, Clock, DollarSign, X, Loader2, Eye, AlertCircle ,CheckCircle2, FileText, Zap  } from "lucide-react";
 import { toast } from "sonner";
-import { Job, ScoreMatchResult, Resume } from "@/lib/types";
+import { Job, ScoreMatchResult, Resume, JobRecommendation } from "@/lib/types";
 import { getClientToken } from "@/lib/api/client";
 import Link from "next/link";
 import Portal from '@/components/ui/Portal'
@@ -33,7 +33,7 @@ export default function JobsPage() {
   const [pickerJobId, setPickerJobId] = useState<string | null>(null);
   const [selectedResumeId, setSelectedResumeId] = useState<string>("");
 
-  const [postApplyRecs, setPostApplyRecs] = useState<Job[]>([]);
+  const [postApplyRecs, setPostApplyRecs] = useState<JobRecommendation[]>([]);
   const [appliedJobId, setAppliedJobId] = useState<string | null>(null);
 
   const [rewriteSuggestions, setRewriteSuggestions] = useState<Record<string, any>>({});
@@ -105,7 +105,7 @@ export default function JobsPage() {
         try {
           const recs = await api.jobRecommendations(activeResume.id, { top_n: 3 });
           const recJobs = (recs.data?.recommendations ?? [])
-            .filter((r: any) => r.job_id !== jobId)
+            .filter((r: JobRecommendation) => r.job_id !== jobId)
             .slice(0, 3);
           setPostApplyRecs(recJobs);
         } catch { /* silent */ }
@@ -229,11 +229,13 @@ export default function JobsPage() {
                         <Briefcase className="w-5 h-5 text-text-muted" />
                       </div>
                       <div>
-                        <h3 className="font-display font-semibold text-text-primary hover:text-electric-400 transition-colors">
+                      <Link href={`/candidate/jobs/${job.id}`}>
+                        <h3 className="font-display font-semibold text-text-primary hover:text-electric-400 transition-colors cursor-pointer">
                           {job.title}
                         </h3>
-                        <p className="text-text-muted text-sm">{job.company}</p>
-                      </div>
+                      </Link>
+                      <p className="text-text-muted text-sm">{job.company}</p>
+                    </div>
                     </div>
 
                     <div className="flex flex-wrap gap-3 mt-3 text-xs text-text-muted">
@@ -439,7 +441,7 @@ export default function JobsPage() {
           </button>
         </div>
         <div className="space-y-2">
-          {postApplyRecs.map((rec: any) => (
+          {postApplyRecs.map((rec: JobRecommendation) => (
             <div key={rec.job_id} className="flex items-center gap-3 p-2 rounded-lg bg-charcoal-800">
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-text-primary truncate">{rec.title}</div>
