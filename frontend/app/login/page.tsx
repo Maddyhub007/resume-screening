@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Candidate, Recruiter } from "@/lib/types";
 
 type Role = "candidate" | "recruiter";
-type Step = "role" | "credentials" | "register";
+type Step = "role" | "credentials" | "register" | "change_password";
 
 export default function LoginPage() {
   const router  = useRouter();
@@ -21,6 +21,7 @@ export default function LoginPage() {
   // Login form
   const [email,       setEmail]       = useState("");
   const [password,    setPassword]    = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [showPass,    setShowPass]    = useState(false);
 
   // Register form
@@ -79,10 +80,51 @@ export default function LoginPage() {
         } else {
           toast.error(getFriendlyError(err));
         }
-  }finally {
-    setLoading(false); 
+    } finally {
+      setLoading(false); 
+    }
   }
-}
+
+  // ── Change Password ────────────────────────────────────────────────────────
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password || !newPassword || !role) return;
+    setLoading(true);
+
+    try {
+      // 1. Silent login to get the bearer token required by the backend
+      const loginRes = await api.authLogin({
+        email: email.toLowerCase().trim(),
+        password, // old password
+        role,
+      });
+      const { access_token, user } = loginRes.data;
+      
+      // 1.5 Inject token into the API client so the next request is authorized
+      setClientToken(access_token);
+      
+      // 2. We now have an active token, so let's hit the change-password endpoint!
+      // This happens securely within the same logical click so the user feels integrated.
+      await api.authChangePassword({
+        current_password: password,
+        new_password: newPassword
+      });
+
+      toast.success("Password successfully changed!");
+      
+      // 3. Complete the login flow and boot them into dashboard normally
+      handleAuthSuccess(access_token, role, user as Candidate | Recruiter);
+
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "INVALID_CREDENTIALS") {
+        toast.error("Invalid email or current password.");
+      } else {
+        toast.error(getFriendlyError(err));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // ── Register: POST /auth/register/candidate|recruiter ─────────────────────
   const handleRegister = async (e: React.FormEvent) => {
@@ -209,6 +251,16 @@ export default function LoginPage() {
                       {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                  <div className="flex justify-between items-center mt-2 px-1">
+                    <span className="opacity-0">.</span>
+                    <button
+                      type="button"
+                      className="text-text-muted hover:text-electric-400 text-xs transition-colors"
+                      onClick={() => setStep("change_password")}
+                    >
+                      Change password?
+                    </button>
+                  </div>
                 </div>
                 <button
                   type="submit"
@@ -230,6 +282,89 @@ export default function LoginPage() {
                     Create one
                   </button>
                 </p>
+              </form>
+            </>
+          )}
+
+          {/* ── Step: Change Password ────────────────────────────────────────── */}
+          {step === "change_password" && (
+            <>
+              <button
+                onClick={() => setStep("credentials")}
+                className="text-text-muted hover:text-text-secondary text-xs mb-6 flex items-center gap-1 transition-colors"
+              >
+                ← Back to sign in
+              </button>
+              <h1 className="font-display text-2xl font-bold text-text-primary mb-2">
+                Update Password
+              </h1>
+              <p className="text-text-secondary text-sm mb-8">
+                Verify your current {role === "candidate" ? "Candidate" : "Recruiter"} credentials to set a new password.
+              </p>
+              <form onSubmit={handleChangePasswordSubmit} className="space-y-4">
+                <div>
+                  <label className="label">Email address</label>
+                  <input
+                    type="email"
+                    className="input"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="label">Current Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPass ? "text" : "password"}
+                      className="input pr-10"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPass((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
+                    >
+                      {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="label">New Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPass ? "text" : "password"}
+                      className="input pr-10"
+                      placeholder="Min 8 chars, uppercase, number, symbol"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      required
+                      minLength={8}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPass((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
+                    >
+                      {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="btn-primary w-full flex items-center justify-center gap-2 mt-4"
+                >
+                  {loading
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <>Secure Account <ArrowRight className="w-4 h-4" /></>
+                  }
+                </button>
               </form>
             </>
           )}

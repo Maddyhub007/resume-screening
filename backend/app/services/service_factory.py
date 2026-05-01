@@ -3,40 +3,23 @@ app/services/service_factory.py
 
 Service factory — builds and caches all service instances.
 
-Design:
-  - Single entry point: ServiceFactory.create_all(config) returns a fully
-    wired set of services ready for use by API handlers.
-  - Singleton caching: heavy services (EmbeddingService, GroqService) are
-    instantiated once per process and reused.
-  - Config-driven: all settings come from the Flask config object.
-  - No Flask app context required: services can be instantiated in tests
-    by passing any object with the required config attributes.
-
-Usage (in app/__init__.py):
-    from app.services.service_factory import ServiceFactory
-
-    services = ServiceFactory.create_all(app.config)
-    app.extensions["services"] = services
-
-Usage (in API handlers):
-    from flask import current_app
-    services = current_app.extensions["services"]
-    result = services.ats_scorer.score_resume_job(resume, job)
-
-Usage (in tests):
-    from app.services.service_factory import ServiceFactory
-    services = ServiceFactory.create_all(TestingConfig())
+Changes vs previous version:
+  - StorageService is instantiated here and stored on the Services dataclass.
+  - Routes that need storage access can call:
+        svcs = current_app.extensions["services"]
+        svcs.storage.upload(...)
+    OR instantiate StorageService.from_config() directly (both are fine —
+    StorageService is lightweight, not a singleton).
+  - Everything else is identical to the previous version.
 """
 
 import logging
 from dataclasses import dataclass
 import os
 
-# Suppress HuggingFace symlink warning on Windows
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 logger = logging.getLogger(__name__)
-
 
 
 @dataclass
@@ -57,13 +40,12 @@ class Services:
     job_recommendations:  object
     candidate_ranking:    object
     recruiter_analytics:  object
+    storage:              object   # StorageService backend instance
 
 
 class ServiceFactory:
     """
-    Builds all services with their dependencies.
-
-    All services are built in dependency order:
+    Builds all services with their dependencies in dependency order:
       infrastructure → scoring components → orchestrators → high-level
     """
 
@@ -73,8 +55,8 @@ class ServiceFactory:
         Build all services from a config object.
 
         Args:
-            config: Flask config dict or config class with service settings.
-            db_session: SQLAlchemy session (used by repositories if provided).
+            config:     Flask config dict or config class.
+            db_session: SQLAlchemy session (optional — used in tests).
 
         Returns:
             Services dataclass with all service instances.
@@ -94,8 +76,8 @@ class ServiceFactory:
         from app.services.job_recommendation_service import JobRecommendationService
         from app.services.candidate_ranking_service import CandidateRankingService
         from app.services.recruiter_analytics_service import RecruiterAnalyticsService
+        from app.services.storage_service import StorageService
 
-        # Config helpers — support both dict and object access
         def cfg(key, default=None):
             if isinstance(config, dict):
                 return config.get(key, default)
@@ -107,7 +89,6 @@ class ServiceFactory:
             cache_dir=cfg("EMBEDDING_CACHE_DIR", ".cache/embeddings"),
         )
         embedding_svc._cache._capacity = cfg("EMBEDDING_CACHE_SIZE", 512)
-
         embedding_svc._ensure_loaded()
 
         groq_svc = GroqService(
@@ -118,6 +99,15 @@ class ServiceFactory:
             timeout=cfg("GROQ_TIMEOUT_SECONDS", 30),
         )
 
+        # ── Storage backend ────────────────────────────────────────────────────
+        # Lightweight — not a singleton. Routes can also call
+        # StorageService.from_config(current_app.config) directly.
+        storage_svc = StorageService.from_config(config)
+        logger.info(
+            "Storage backend initialised",
+            extra={"provider": storage_svc.provider},
+        )
+
         # ── Parsing ────────────────────────────────────────────────────────────
         resume_parser = ResumeParserService()
         job_parser    = JobParserService()
@@ -126,11 +116,10 @@ class ServiceFactory:
         keyword_matcher = KeywordMatcherService()
 
         semantic_matcher = SemanticMatcherService(
-            embedding_service=embedding_svc
+            embedding_service=embedding_svc,
         )
 
-        experience_scorer = ExperienceScorerService()
-
+        experience_scorer     = ExperienceScorerService()
         section_quality_scorer = SectionQualityScorerService()
 
         # ── Explainability ─────────────────────────────────────────────────────
@@ -139,17 +128,10 @@ class ServiceFactory:
             keyword_matcher=keyword_matcher,
         )
 
-        # ── Repositories (built lazily from db session or app context) ─────────
+        # ── Repositories ───────────────────────────────────────────────────────
         repos = _build_repos(db_session)
 
         # ── Orchestrators ──────────────────────────────────────────────────────
-        weights = {
-            "semantic":   cfg("WEIGHT_SEMANTIC",        0.40),
-            "keyword":    cfg("WEIGHT_KEYWORD",         0.35),
-            "experience": cfg("WEIGHT_EXPERIENCE",      0.15),
-            "section":    cfg("WEIGHT_SECTION_QUALITY", 0.10),
-        }
-
         ats_scorer = AtsScorerService(
             keyword_matcher=keyword_matcher,
             semantic_matcher=semantic_matcher,
@@ -158,8 +140,8 @@ class ServiceFactory:
             explainability_engine=explainability_engine,
             ats_score_repo=repos["ats_score"],
             weights=cfg("ATS_SCORE_WEIGHTS", None),
-            parallel_scoring=cfg("ATS_PARALLEL_SCORING", True),       # [SC1]
-            scoring_timeout_seconds=cfg("ATS_SCORING_TIMEOUT", 10.0), # [SC1]
+            parallel_scoring=cfg("ATS_PARALLEL_SCORING", True),
+            scoring_timeout_seconds=cfg("ATS_SCORING_TIMEOUT", 10.0),
             threshold_excellent=cfg("ATS_SCORE_THRESHOLD_EXCELLENT", 0.80),
             threshold_good=cfg("ATS_SCORE_THRESHOLD_GOOD",      0.65),
             threshold_fair=cfg("ATS_SCORE_THRESHOLD_FAIR",      0.50),
@@ -197,11 +179,13 @@ class ServiceFactory:
             ats_score_repo=repos["ats_score"],
         )
 
-
-
         logger.info(
-            "Services initialised. Groq=%s, Semantic=%s",
-            groq_svc.available, semantic_matcher.available
+            "Services initialised",
+            extra={
+                "groq_available":      groq_svc.available,
+                "embedding_available": semantic_matcher.available,
+                "storage_provider":    storage_svc.provider,
+            },
         )
 
         return Services(
@@ -220,6 +204,7 @@ class ServiceFactory:
             job_recommendations=job_rec_svc,
             candidate_ranking=candidate_rank_svc,
             recruiter_analytics=recruiter_analytics_svc,
+            storage=storage_svc,
         )
 
 
@@ -227,11 +212,8 @@ def _build_repos(db_session=None) -> dict:
     """
     Build repository instances.
 
-    If db_session is provided (test context), inject it directly.
-    Otherwise, repositories will use Flask-SQLAlchemy's scoped session
-    (resolved at call time from app context).
-
-    Returns MagicMock repos if ORM models are unavailable (e.g. unit tests).
+    Falls back to MagicMock repos in unit test environments where
+    ORM models are not available.
     """
     try:
         from app.repositories import (
@@ -253,9 +235,8 @@ def _build_repos(db_session=None) -> dict:
         }
     except Exception as exc:
         logger.warning(
-            "Could not import repositories (%s) — using mock repos. "
-            "This is expected in unit test environments.", exc
+            "Could not import repositories (%s) — using mock repos.", exc
         )
         from unittest.mock import MagicMock
         return {k: MagicMock() for k in
-                ("candidate","recruiter","job","resume","application","ats_score")}
+                ("candidate", "recruiter", "job", "resume", "application", "ats_score")}

@@ -133,7 +133,7 @@ export default function RecruiterDashboard() {
           ) : (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={pipelineChartData} barSize={22}>
-                <XAxis dataKey="stage" tick={{ fill: "#8B92A8", fontSize: 10 }} axisLine={false} tickLine={false} />
+                <XAxis dataKey="stage" tick={{ fill: "#8B92A8", fontSize: 10 }} axisLine={false} tickLine={false} interval={0} angle={-30} textAnchor="end" height={50} />
                 <YAxis tick={{ fill: "#8B92A8", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <Tooltip content={<CustomTooltip />} />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]}>

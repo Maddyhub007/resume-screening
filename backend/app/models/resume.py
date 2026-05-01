@@ -24,6 +24,7 @@ from typing import Any
 
 from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import BaseModel
 from app.models.enums import ParseStatus, SA_PARSE_STATUS
@@ -65,14 +66,14 @@ class Resume( SoftDeleteMixin, BaseModel):
 
     # ── Parsed content (JSON-serialised lists) ────────────────────────────────
     raw_text:       Mapped[str | None] = mapped_column(Text, nullable=True)
-    skills:         Mapped[str | None] = mapped_column(Text, nullable=True)
-    education:      Mapped[str | None] = mapped_column(Text, nullable=True)
-    experience:     Mapped[str | None] = mapped_column(Text, nullable=True)
-    certifications: Mapped[str | None] = mapped_column(Text, nullable=True)
-    projects:       Mapped[str | None] = mapped_column(Text, nullable=True)
+    skills:         Mapped[str | None] = mapped_column(JSONB, nullable=True)
+    education:      Mapped[str | None] = mapped_column(JSONB, nullable=True)
+    experience:     Mapped[str | None] = mapped_column(JSONB, nullable=True)
+    certifications: Mapped[str | None] = mapped_column(JSONB, nullable=True)
+    projects:       Mapped[str | None] = mapped_column(JSONB, nullable=True)
     summary_text:   Mapped[str | None] = mapped_column(Text, nullable=True)
-    contact_info:   Mapped[str | None] = mapped_column(Text, nullable=True)
-    oov_skills_list:Mapped[str | None] = mapped_column(Text, nullable=True)
+    contact_info:   Mapped[str | None] = mapped_column(JSONB, nullable=True)
+    oov_skills_list:Mapped[str | None] = mapped_column(JSONB, nullable=True)
 
     # ── Computed metrics ──────────────────────────────────────────────────────
     total_experience_years: Mapped[float] = mapped_column(Float,   default=0.0, nullable=False)

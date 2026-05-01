@@ -208,6 +208,10 @@ class TestingConfig(BaseConfig):
     LOG_LEVEL:               str  = "ERROR"
     SECRET_KEY:              str  = "test-secret-key-not-for-production"
 
+    @property
+    def SQLALCHEMY_ENGINE_OPTIONS(self) -> dict:
+        return {}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Config Registry

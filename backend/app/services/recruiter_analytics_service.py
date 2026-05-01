@@ -177,15 +177,18 @@ class RecruiterAnalyticsService:
             key=lambda j: j.applicant_count,
             reverse=True
         )[:5]
-        top_jobs_data = [
-            {
+        top_jobs_data = []
+        for j in top_jobs:
+            # Calculate avg score for this job specifically for the ranking
+            job_scores, _ = self._ats_repo.list_by_job(job_id=j.id, page=1, limit=100)
+            avg = sum(s.final_score for s in job_scores) / len(job_scores) if job_scores else 0.0
+            top_jobs_data.append({
                 "job_id":          j.id,
                 "title":           j.title,
                 "applicant_count": j.applicant_count,
                 "status":          j.status,
-            }
-            for j in top_jobs
-        ]
+                "avg_score":       round(avg, 3),
+            })
 
         # ── Skills demand ─────────────────────────────────────────────────────
         skill_demand: Counter = Counter()

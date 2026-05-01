@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:16
-    container_name: ats_postgres
+    container_name: ats_postgressql
     restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: ats_pass

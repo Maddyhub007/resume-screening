@@ -1,30 +1,19 @@
 """
 app/utils/file_helpers.py
 
-File upload validation and management utilities.
+File upload validation utilities.
 
-FIXES APPLIED:
-  FH-01 — human_readable_size() used `//=` (integer floor division-assignment)
-           instead of `/=` (float division) when stepping down size units.
-           With `//=`, dividing 1500 bytes down to KB gave 1 instead of 1.46,
-           and sizes between 1 KB and 1 MB were reported as 0 KB. Fixed to `/=`.
+All FH-01 through FH-04 fixes from the previous version are preserved.
 
-  FH-02 — _ALLOWED_MIME dict was defined but never consulted in validate_upload().
-           Only the file extension was checked; the MIME type in
-           FileStorage.content_type was completely ignored. This allowed a
-           renamed `.exe` file with extension `.pdf` to pass validation.
-           Fixed: validate_upload() now cross-checks content_type against
-           _ALLOWED_MIME when the value is present and non-empty.
-
-  FH-03 — No explicit file size check in validate_upload(). Flask's
-           MAX_CONTENT_LENGTH rejects oversized requests at the WSGI layer,
-           but only after the full body has been read. validate_upload() should
-           also guard against 0-byte files and optionally cap via app config.
-
-  FH-04 — save_upload() returned only the file path string. Callers
-           (_helpers.py candidate upload) needed the size in KB separately,
-           leading to a second os.path.getsize() call. save_upload() now
-           returns a (file_path, size_kb) tuple to avoid the redundant stat.
+What changed vs previous version:
+  - save_upload() is kept for local dev compatibility but is no longer
+    called from upload_resume(). The route now uses StorageService directly.
+  - validate_upload() is now the primary entry point called from the route.
+    It returns the lowercase extension string so the caller knows file type.
+  - human_readable_size() FH-01 fix (float division) is preserved.
+  - MIME cross-check FH-02 is preserved and active.
+  - Size check FH-03 is preserved and active.
+  - ResumeUploadFailed is the single exception type callers catch.
 """
 
 import logging
@@ -33,7 +22,6 @@ import uuid
 from pathlib import Path
 from typing import Tuple
 
-from flask import current_app
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
@@ -56,21 +44,23 @@ def validate_upload(
     """
     Validate an uploaded FileStorage object.
 
-    Checks:
-      - Filename is not empty.
-      - Extension is in the allowed set.
-      - MIME type matches the expected type for the extension (FIX FH-02).
-      - File has content (non-zero size) (FIX FH-03).
-      - File does not exceed max_size_mb if specified (FIX FH-03).
+    Checks (in order):
+      1. Filename is not empty.
+      2. Extension is in the allowed set.
+      3. MIME type matches the expected type for the extension (FH-02).
+      4. File is non-empty (FH-03).
+      5. File does not exceed max_size_mb if given (FH-03).
+
+    After this call the stream is rewound to position 0 — the caller
+    can safely call file.read() or file.save() immediately after.
 
     Args:
         file:               Werkzeug FileStorage from request.files.
         allowed_extensions: Set of lowercase extensions e.g. {"pdf", "docx"}.
-        max_size_mb:        Optional size cap in MB. Defaults to
-                            app.config["MAX_UPLOAD_MB"] when available.
+        max_size_mb:        Optional hard cap in MB.
 
     Returns:
-        The lowercase extension string (e.g. "pdf").
+        Lowercase extension string without leading dot — e.g. "pdf".
 
     Raises:
         ResumeUploadFailed: On any validation failure.
@@ -81,48 +71,47 @@ def validate_upload(
     original_name = file.filename
     ext = Path(original_name).suffix.lstrip(".").lower()
 
+    # ── Extension check ───────────────────────────────────────────────────────
     if not ext or ext not in allowed_extensions:
         raise ResumeUploadFailed(
             f"File type '.{ext}' is not allowed. "
             f"Accepted types: {', '.join(sorted(allowed_extensions))}."
         )
 
-    # FIX FH-02: cross-check content_type against the known MIME for this extension.
-    # Previously _ALLOWED_MIME was defined but never consulted here.
-    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    # ── MIME type cross-check (FH-02) ─────────────────────────────────────────
+    # Strip charset suffix: "application/pdf; charset=utf-8" → "application/pdf"
+    content_type  = (file.content_type or "").split(";")[0].strip().lower()
     expected_mime = _ALLOWED_MIME.get(ext)
+
     if expected_mime and content_type and content_type != expected_mime:
         logger.warning(
-            "MIME type mismatch for upload: filename=%s ext=%s "
-            "content_type=%s expected=%s",
-            original_name, ext, content_type, expected_mime,
+            "MIME type mismatch for upload",
+            extra={
+                "filename":      original_name,
+                "ext":           ext,
+                "content_type":  content_type,
+                "expected_mime": expected_mime,
+            },
         )
         raise ResumeUploadFailed(
             f"File content does not match the declared extension '.{ext}'. "
             f"Expected MIME type '{expected_mime}', got '{content_type}'."
         )
 
-    # FIX FH-03: check file size.
-    # Seek to end to get size without fully reading into memory.
-    file.stream.seek(0, 2)          # seek to end
+    # ── File size check (FH-03) ───────────────────────────────────────────────
+    # Seek to end to measure without reading the whole file into memory.
+    file.stream.seek(0, 2)
     size_bytes = file.stream.tell()
-    file.stream.seek(0)             # rewind for the actual save
+    file.stream.seek(0)             # rewind — caller will read from start
 
     if size_bytes == 0:
         raise ResumeUploadFailed("Uploaded file is empty (0 bytes).")
 
-    # Resolve the size cap: caller arg → app config → no cap
-    cap_mb = max_size_mb
-    if cap_mb is None:
-        try:
-            cap_mb = current_app.config.get("MAX_UPLOAD_MB")
-        except RuntimeError:
-            cap_mb = None  # outside app context (e.g. tests)
-
-    if cap_mb and size_bytes > cap_mb * 1024 * 1024:
+    if max_size_mb and size_bytes > max_size_mb * 1024 * 1024:
+        actual_mb = size_bytes / (1024 * 1024)
         raise ResumeUploadFailed(
-            f"File exceeds the maximum upload size of {cap_mb} MB "
-            f"(got {size_bytes / (1024 * 1024):.1f} MB)."
+            f"File exceeds the maximum upload size of {max_size_mb} MB "
+            f"(got {actual_mb:.1f} MB)."
         )
 
     return ext
@@ -134,24 +123,23 @@ def save_upload(
     prefix: str = "",
 ) -> Tuple[str, int]:
     """
-    Save a validated FileStorage to disk under a unique filename.
+    Save a validated FileStorage to disk under a UUID filename.
 
-    FIX FH-04: Returns a (file_path, size_kb) tuple instead of just the path.
-    Callers previously called os.path.getsize() separately; this avoids the
-    redundant stat syscall.
+    NOTE: This function is retained for local tooling / tests.
+    The upload_resume route uses StorageService.upload() instead.
+
+    FH-04: Returns (file_path, size_kb) tuple.
 
     Args:
-        file:       A validated FileStorage object (validate_upload() already called).
-        upload_dir: Directory to save the file in. Created if it does not exist.
+        file:       A validated FileStorage object.
+        upload_dir: Directory to save into. Created if absent.
         prefix:     Optional prefix prepended to the unique filename.
 
     Returns:
         (file_path, size_kb)
-          file_path: Absolute path to the saved file.
-          size_kb:   File size rounded to the nearest KB (minimum 1).
 
     Raises:
-        ResumeUploadFailed: If the directory cannot be created or the write fails.
+        ResumeUploadFailed: On directory creation or write failure.
     """
     try:
         Path(upload_dir).mkdir(parents=True, exist_ok=True)
@@ -173,26 +161,22 @@ def save_upload(
     size_kb    = max(1, round(size_bytes / 1024))
 
     logger.info(
-        "File saved",
-        extra={
-            "original_name": safe_name,
-            "saved_path":    file_path,
-            "size_kb":       size_kb,
-        },
+        "File saved to disk",
+        extra={"original": safe_name, "path": file_path, "size_kb": size_kb},
     )
-    return file_path, size_kb  # FIX FH-04: was just file_path
+    return file_path, size_kb
 
 
 def delete_file(file_path: str) -> None:
     """
-    Delete a file from disk. Silently ignores missing files.
+    Delete a file from local disk. Silently ignores missing files.
 
-    Used to clean up partially-uploaded files when downstream processing fails.
+    For Cloudinary deletion use StorageService.delete(public_key) instead.
     """
     try:
         if file_path and os.path.exists(file_path):
             os.remove(file_path)
-            logger.info("File deleted: %s", file_path)
+            logger.info("Local file deleted", extra={"path": file_path})
     except OSError as exc:
         logger.warning("Failed to delete file %s: %s", file_path, exc)
 
@@ -201,17 +185,14 @@ def human_readable_size(size_bytes: int) -> str:
     """
     Format a byte count as a human-readable string.
 
-    FIX FH-01: Original used `//=` (integer floor division assignment) when
-    stepping down units. For example, 1500 bytes:
-      Original: size //= 1024  → size = 1  → reported as "1 KB" (wrong, lost .46)
-      Fixed:    size /= 1024   → size = 1.46 → reported as "1.5 KB" (correct)
+    FH-01: Uses float division (/=) not integer floor division (//=).
+    1500 bytes → "1.5 KB", not "1 KB".
 
-    Returns:
-        e.g. "2.3 MB", "512.0 KB", "800 B"
+    Returns: e.g. "2.3 MB", "512.0 KB", "800.0 B"
     """
     size: float = float(size_bytes)
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024.0:
             return f"{size:.1f} {unit}"
-        size /= 1024.0  # FIX FH-01: was `//=` which truncated to integer
+        size /= 1024.0          # FH-01: was //= which truncated decimals
     return f"{size:.1f} TB"

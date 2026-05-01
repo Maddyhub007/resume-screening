@@ -111,7 +111,7 @@ export default function RecruiterJobDetailPage() {
               }
               AI Enhance
             </button>
-            <Link href={`/recruiter/jobs/${id}/applicants`} className="btn-primary flex items-center gap-2">
+            <Link href={`/recruiter/jobs/${id}/pipeline`} className="btn-primary flex items-center gap-2">
               <Users className="w-4 h-4" /> View Pipeline
             </Link>
           </div>

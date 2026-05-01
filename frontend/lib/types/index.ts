@@ -33,6 +33,7 @@ export interface RoleSuggestion {
   title: string;
   reason: string;
   confidence: number;
+  match_score?: number;
 }
 
 export interface AtsScore {

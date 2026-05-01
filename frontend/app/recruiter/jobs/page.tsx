@@ -127,7 +127,7 @@ export default function RecruiterJobsPage() {
                     : <Zap className="w-3 h-3" />}
                   Enhance
                 </button>
-                <Link href={`/recruiter/jobs/${job.id}/applicants`} className="btn-secondary text-xs py-1.5 px-3">
+                <Link href={`/recruiter/jobs/${job.id}/pipeline`} className="btn-secondary text-xs py-1.5 px-3">
                   Pipeline
                 </Link>
                 <Link href={`/recruiter/jobs/${job.id}`} className="btn-ghost text-xs py-1.5 px-3">

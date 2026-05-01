@@ -154,14 +154,24 @@ let _refreshing: Promise<string | null> | null = null;
 
 export function resetClientState() {
   _accessToken = null;
-  _refreshing  = null;
+  _refreshing  = null; 
+}
+
+const API_BASE_URL =
+  typeof window === "undefined"
+    ? process.env.INTERNAL_API_URL
+    : process.env.NEXT_PUBLIC_API_URL; 
+
+if (!API_BASE_URL) {
+  throw new Error("API base URL is not configured");
 }
 
 const createApiClient = (): AxiosInstance => {
   const client = axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_URL
-      ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1`
-      : "/api/v1",
+    baseURL: `${API_BASE_URL}/api/v1`,
+    // typeof window === "undefined"
+    //   ? (process.env.INTERNAL_API_URL || "http://ats_flask:5000/api/v1")
+    //   : (process.env.NEXT_PUBLIC_API_URL || "/api/v1"),
     headers:          { "Content-Type": "application/json" },
     timeout:          120_000,
     withCredentials:  true,   // ← REQUIRED: sends HttpOnly refresh_token cookie

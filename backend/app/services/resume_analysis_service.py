@@ -3,37 +3,21 @@ app/services/resume_analysis_service.py
 
 High-level resume analysis service.
 
-Orchestrates:
-  1. Parse resume file (if not already parsed).
-  2. Run SectionQualityScorerService to identify structural gaps.
-  3. Call GroqService for LLM analysis (summary, issues, role suggestions).
-  4. Persist updated analysis fields on the Resume record.
-  5. Return AnalysisResult.
+Changes vs previous version:
+  - analyse() with force_reparse=True no longer calls parser.parse(file_path).
+    That code path assumed a local file path, which breaks on Render
+    (ephemeral filesystem) and with Cloudinary URLs.
 
-This service is called:
-  - At upload time (async / background worker).
-  - On-demand via GET /resumes/{id}/analysis.
-  - When regenerating analysis after a resume update.
+  - The route (resumes.py:analyze_resume) now handles force_reparse itself:
+      1. Downloads bytes from StorageService
+      2. Calls parser.parse_bytes()
+      3. Applies parse result to the Resume ORM object
+      4. Calls analyse(resume, force_reparse=False) — data already fresh
 
-Design decisions:
-  - Idempotent: calling analyse() twice on the same resume overwrites
-    the analysis fields with fresh results — safe to retry.
-  - Fallback: if Groq is unavailable, rule-based role suggestions and
-    issues are returned instead of an error.
-  - Never parses file again if parse_status=SUCCESS — respects the
-    existing parsed data.
+  - This service only runs analysis on already-parsed data on the ORM
+    object. It never touches the filesystem or network.
 
-Usage:
-    from app.services.resume_analysis_service import ResumeAnalysisService
-
-    svc = ResumeAnalysisService(
-        parser=parser_svc,
-        section_quality_scorer=sq_svc,
-        groq_service=groq_svc,
-        resume_repo=resume_repo,
-    )
-
-    result = svc.analyse(resume=resume_obj)
+  - Everything else (section quality, Groq, persist, fallback) is identical.
 """
 
 import logging
@@ -72,7 +56,11 @@ _SKILL_TO_ROLES = {
 
 class ResumeAnalysisService:
     """
-    Orchestrates resume parsing and AI-powered analysis.
+    Orchestrates resume analysis (section quality + LLM).
+
+    This service does NOT handle file I/O or re-parsing.
+    The route is responsible for downloading and re-parsing the file
+    before calling analyse() — see resumes.py:analyze_resume().
     """
 
     def __init__(
@@ -94,12 +82,18 @@ class ResumeAnalysisService:
         use_llm: bool = True,
     ) -> AnalysisResult:
         """
-        Run full analysis on a Resume ORM object.
+        Run analysis on a Resume ORM object whose parsed data is already present.
+
+        IMPORTANT: force_reparse=True is a legacy parameter that previously
+        called parser.parse(resume.file_path). That path is now handled by
+        the route before calling this method. If force_reparse=True is passed
+        here, it is silently treated as False — the data on the ORM object
+        is used as-is. The route is responsible for refreshing it first.
 
         Args:
-            resume:        Resume ORM instance.
-            force_reparse: Re-parse file even if parse_status=SUCCESS.
-            use_llm:       Whether to call GroqService.
+            resume:        Resume ORM instance with skills_list, experience_list etc.
+            force_reparse: Ignored — kept for signature compatibility.
+            use_llm:       Whether to call GroqService for enhanced analysis.
 
         Returns:
             AnalysisResult — always returns, never raises.
@@ -107,24 +101,21 @@ class ResumeAnalysisService:
         from app.models.enums import ParseStatus
 
         try:
-            # ── 1. Parse if needed ─────────────────────────────────────────────
-            if force_reparse or resume.parse_status != ParseStatus.SUCCESS:
-                parse_result = self._parser.parse(resume.file_path)
-                if parse_result.success:
-                    self._apply_parse_result(resume, parse_result)
-                    resume.parse_status = ParseStatus.SUCCESS
-                    resume.parse_error_msg = None
-                else:
-                    resume.parse_status = ParseStatus.FAILED
-                    resume.parse_error_msg = parse_result.parse_error
-                    self._repo.save(resume)
-                    return AnalysisResult(
-                        resume_id=resume.id,
-                        parse_error=parse_result.parse_error,
-                    )
-                self._repo.save(resume)
+            # ── Guard: must be parsed before analysis ──────────────────────────
+            parse_status_val = getattr(
+                getattr(resume, "parse_status", None), "value",
+                str(getattr(resume, "parse_status", ""))
+            )
+            if parse_status_val != ParseStatus.SUCCESS.value:
+                return AnalysisResult(
+                    resume_id=resume.id,
+                    parse_error=(
+                        f"Resume parse status is '{parse_status_val}'. "
+                        "Re-upload or re-parse before running analysis."
+                    ),
+                )
 
-            # ── 2. Section quality ─────────────────────────────────────────────
+            # ── Section quality ────────────────────────────────────────────────
             sq_score = self._sq.score(
                 skills=resume.skills_list,
                 experience=resume.experience_list,
@@ -145,7 +136,7 @@ class ResumeAnalysisService:
                 raw_text_length=len(resume.raw_text or ""),
             )
 
-            # ── 3. LLM analysis ───────────────────────────────────────────────
+            # ── LLM analysis ───────────────────────────────────────────────────
             llm_enhanced = False
             if use_llm and self._groq and self._groq.available:
                 llm_data = self._groq.analyse_resume(
@@ -159,16 +150,15 @@ class ResumeAnalysisService:
                 issues           = llm_data.get("issues", [])
                 role_suggestions = llm_data.get("role_suggestions", [])
                 improvement_tips = llm_data.get("improvement_tips", [])
-                llm_enhanced = True
+                llm_enhanced     = True
             else:
-                # Rule-based fallback
                 summary, strengths, issues, role_suggestions, improvement_tips = (
                     self._rule_based_analysis(resume, sq_score, sq_missing)
                 )
 
-            # ── 4. Persist analysis fields ────────────────────────────────────
-            resume.resume_summary       = summary
-            resume.issues_list          = issues
+            # ── Persist analysis fields ────────────────────────────────────────
+            resume.resume_summary        = summary
+            resume.issues_list           = issues
             resume.role_suggestions_list = role_suggestions
             resume.improvement_tips_list = improvement_tips
             self._repo.save(resume)
@@ -188,89 +178,74 @@ class ResumeAnalysisService:
             logger.exception("Resume analysis failed for %s", resume.id)
             return AnalysisResult(resume_id=resume.id, parse_error=str(exc))
 
-    def _apply_parse_result(self, resume, parse_result) -> None:
-        """Write ParseResult fields back onto the Resume ORM object."""
-        resume.raw_text              = parse_result.raw_text
-        resume.skills_list           = parse_result.skills
-        resume.education_list        = parse_result.education
-        resume.experience_list       = parse_result.experience
-        resume.certifications_list   = parse_result.certifications
-        resume.projects_list         = parse_result.projects
-        resume.summary_text          = parse_result.summary_text
-        resume.total_experience_years = parse_result.total_experience_years
-        resume.skill_count           = parse_result.skill_count
-        try:
-            resume.contact_info = parse_result.contact
-        except (AttributeError, Exception):
-            pass
-
-        try:
-            resume.oov_skills_list = parse_result.oov_skills
-        except (AttributeError, Exception):
-            pass
+    # ─────────────────────────────────────────────────────────────────────────
+    # Rule-based fallback
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _rule_based_analysis(
         self,
         resume,
         sq_score: float,
-        missing_sections
+        missing_sections,
     ) -> tuple[str, list, list, list, list]:
-        """Fallback analysis without LLM."""
-        skills = resume.skills_list
+        """Produce analysis results without calling the LLM."""
+        skills           = resume.skills_list
         experience_years = resume.total_experience_years
 
-        # Summary
         summary = (
             f"Candidate has {experience_years:.1f} years of experience "
             f"with expertise in {', '.join(skills[:5]) if skills else 'unknown areas'}."
         )
 
-        # Strengths
         strengths = []
         if experience_years >= 5:
-            strengths.append(f"Strong {experience_years:.0f} years of professional experience")
+            strengths.append(
+                f"Strong {experience_years:.0f} years of professional experience"
+            )
         if len(skills) >= 10:
-            strengths.append(f"Broad technical skill set ({len(skills)} skills detected)")
+            strengths.append(
+                f"Broad technical skill set ({len(skills)} skills detected)"
+            )
 
-        # Issues from missing sections
         issues = []
         if missing_sections:
             issues.append({
-                "type": "missing_section",
+                "type":        "missing_section",
                 "description": f"Resume is missing sections: {', '.join(missing_sections)}",
-                "severity": "medium",
+                "severity":    "medium",
             })
 
-        # Role suggestions from skill mapping
+        # Role suggestions via skill mapping
         role_scores: dict[str, float] = {}
         for skill in skills:
             for role, score in _SKILL_TO_ROLES.get(skill.lower(), []):
                 if role not in role_scores or role_scores[role] < score:
                     role_scores[role] = score
 
-        role_suggestions = [
-            {"title": role, "match_score": score, "reason": f"Strong match based on {skill} skills"}
+        role_suggestions_raw = [
+            {
+                "title":       role,
+                "match_score": score,
+                "reason":      f"Strong match based on {skill} skills",
+            }
             for skill, roles in _SKILL_TO_ROLES.items()
             if skill in {s.lower() for s in skills}
             for role, score in roles
         ]
-        # Deduplicate by title
         seen: set[str] = set()
-        deduped = []
-        for r in sorted(role_suggestions, key=lambda x: -x["match_score"]):
+        role_suggestions = []
+        for r in sorted(role_suggestions_raw, key=lambda x: -x["match_score"]):
             if r["title"] not in seen:
                 seen.add(r["title"])
-                deduped.append(r)
-        role_suggestions = deduped[:5]
+                role_suggestions.append(r)
+        role_suggestions = role_suggestions[:5]
 
-        # Basic improvement tips
         improvement_tips = []
-        oov = getattr(resume, "oov_skills_list", [])
-        all_skills_count = len(skills) + len(oov)
-        if all_skills_count < 5:
+        oov = getattr(resume, "oov_skills_list", []) or []
+        if len(skills) + len(oov) < 5:
             improvement_tips.append({
                 "category": "skills",
-                "tip": "Add more technical skills to improve job match visibility.",
+                "tip":      "Add more technical skills to improve job match visibility.",
             })
         if oov:
             improvement_tips.append({
