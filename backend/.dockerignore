@@ -10,3 +10,5 @@ tests/
 *.egg-info/
 .git/
 .env.example
+.env
+.env.*

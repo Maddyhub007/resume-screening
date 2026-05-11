@@ -90,7 +90,7 @@ class BaseConfig:
     # ── Server ────────────────────────────────────────────────────────────────
     HOST:    str = os.getenv("HOST", "0.0.0.0")
     PORT:    int = _int_env("PORT", 5000)
-    WORKERS: int = _int_env("WORKERS", 2)
+    WORKERS: int = _int_env("WORKERS", 1)
 
     # ── Database ──────────────────────────────────────────────────────────────
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False

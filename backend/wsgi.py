@@ -3,7 +3,7 @@
 wsgi.py  —  Gunicorn / production WSGI entry point.
 
 Gunicorn command (Render):
-    gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 
 The app object is resolved here once and reused by all gunicorn workers.
 """

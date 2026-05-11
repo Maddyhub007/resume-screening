@@ -319,7 +319,7 @@ def generate_report(candidates, recruiters):
     print("\n📝 Generating seed report...")
     report_path = "seed_report.md"
     
-    with open(report_path, "w") as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write("# 🛡️ Database Seed Report\n\n")
         f.write(f"**Generated At**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"**Default Password**: `{DEFAULT_PASSWORD}`\n\n")
