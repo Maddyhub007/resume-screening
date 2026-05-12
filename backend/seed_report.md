@@ -1,45 +1,45 @@
 # 🛡️ Database Seed Report
 
-**Generated At**: 2026-05-08 11:54:12
+**Generated At**: 2026-05-12 10:51:55
 **Default Password**: `password123`
 
 ## 🏢 Recruiters (Top 10)
 | Name | Email | Company |
 | :--- | :--- | :--- |
-| Heather Nielsen | `bbennett@example.org` | Johnson Group |
-| Brandy Romero | `cfarrell@example.org` | Hodges-Anderson |
-| Kathleen Farrell | `nelsongerald@example.com` | Smith-Smith |
-| Charles Garcia | `melvincharles@example.com` | Chen-Decker |
-| Cody Marshall | `deborah64@example.org` | Wiggins, Lee and Weeks |
-| Sharon Dominguez | `justinstone@example.com` | Johnson, Flynn and Kane |
-| Brittany Smith | `derekwright@example.net` | Patel, Ferguson and Moore |
-| Michael Griffin | `angelastrickland@example.org` | Anderson and Sons |
-| Dustin Lee | `john55@example.org` | Aguilar-Melton |
-| Katelyn Kent | `gardnerwilliam@example.net` | Morris-Green |
+| April Steele | `burtonmichael@example.net` | Zhang-Dalton |
+| Carla Elliott | `plee@example.com` | Adams, Phillips and Roberts |
+| Bradley Haynes | `dominiqueknight@example.com` | Beasley-Barton |
+| Jason Watson | `comptonchristopher@example.net` | Hayes-Donovan |
+| Carolyn Rodriguez | `ashley52@example.com` | Gordon-Lang |
+| Mrs. Jamie Green | `wbradley@example.org` | Dominguez, Garrett and Grant |
+| Amy Cooper | `alyssa35@example.com` | Tyler-Caldwell |
+| Mark Mullins | `stacy98@example.com` | Holloway LLC |
+| John Kelley | `monicagreer@example.org` | Williams, Stein and Freeman |
+| Marvin Henry | `kimberlylewis@example.net` | Serrano-Holland |
 
 ## 👤 Candidates (Top 20)
 | Name | Email | Headline |
 | :--- | :--- | :--- |
-| Stephanie Graham | `fostertracy@example.net` | Frontend Developer | 3yrs exp | Open to new roles |
-| Allison Jones | `brianmathis@example.com` | Frontend Developer | 8yrs exp | Open to new roles |
-| Kevin Fisher | `qsalazar@example.net` | DevOps Engineer | 7yrs exp | Open to new roles |
-| Henry Young | `littlezachary@example.org` | Full Stack Developer | 4yrs exp | Open to new roles |
-| Courtney Gordon | `cjohnson@example.com` | Frontend Developer | 6yrs exp | Open to new roles |
-| Leslie Bartlett | `rmontgomery@example.org` | Full Stack Developer | 5yrs exp | Open to new roles |
-| Robin Oliver | `nicolehanna@example.net` | Data Scientist | 2yrs exp | Open to new roles |
-| Lynn Tucker | `zschroeder@example.org` | Data Scientist | 6yrs exp | Open to new roles |
-| Shawn Lopez | `ihensley@example.net` | Full Stack Developer | 3yrs exp | Open to new roles |
-| Roy Graves | `zstewart@example.com` | Data Scientist | 5yrs exp | Open to new roles |
-| Jack Martin | `zgibson@example.org` | Frontend Developer | 6yrs exp | Open to new roles |
-| Jonathan Diaz | `sandovaljon@example.org` | Full Stack Developer | 5yrs exp | Open to new roles |
-| Barbara Baker | `vfernandez@example.net` | AI/ML Engineer | 5yrs exp | Open to new roles |
-| Jason Bradley | `howardkirk@example.com` | Backend Developer | 7yrs exp | Open to new roles |
-| Karen Edwards | `dsloan@example.net` | Full Stack Developer | 7yrs exp | Open to new roles |
-| Tammie Ayala | `crystalvance@example.org` | Frontend Developer | 7yrs exp | Open to new roles |
-| Alexander Brewer | `olsonmanuel@example.com` | AI/ML Engineer | 4yrs exp | Open to new roles |
-| Michele Phillips | `hlee@example.net` | Data Scientist | 8yrs exp | Open to new roles |
-| Andrew Farrell | `stephen99@example.com` | Data Scientist | 7yrs exp | Open to new roles |
-| Jack Pena Jr. | `albert93@example.com` | AI/ML Engineer | 2yrs exp | Open to new roles |
+| Richard Warren | `stephenholt@example.org` | Backend Developer | 4yrs exp | Open to new roles |
+| Ashley Sellers | `newmaneric@example.com` | Backend Developer | 6yrs exp | Open to new roles |
+| Aaron Meyer | `owenlinda@example.com` | AI/ML Engineer | 8yrs exp | Open to new roles |
+| Clifford Chavez | `allisongibson@example.com` | Data Scientist | 3yrs exp | Open to new roles |
+| Alison Obrien | `francisco11@example.org` | Full Stack Developer | 8yrs exp | Open to new roles |
+| Joseph Hancock | `christinamcconnell@example.com` | Full Stack Developer | 2yrs exp | Open to new roles |
+| Sara Hurley | `ashleyturner@example.com` | Backend Developer | 6yrs exp | Open to new roles |
+| David Mitchell | `hudsonselena@example.net` | Frontend Developer | 8yrs exp | Open to new roles |
+| Kenneth Taylor | `melissa04@example.com` | Full Stack Developer | 3yrs exp | Open to new roles |
+| Paul Flynn | `houstonamy@example.com` | DevOps Engineer | 2yrs exp | Open to new roles |
+| Natasha Mayer | `sweeneytammy@example.net` | Frontend Developer | 3yrs exp | Open to new roles |
+| Patricia Todd | `virginia18@example.com` | Backend Developer | 6yrs exp | Open to new roles |
+| Katie Weaver DDS | `kevin44@example.net` | Backend Developer | 5yrs exp | Open to new roles |
+| Christopher Stewart II | `morrisjay@example.com` | AI/ML Engineer | 5yrs exp | Open to new roles |
+| Samantha Bray | `ryan44@example.net` | DevOps Engineer | 4yrs exp | Open to new roles |
+| Aaron Flores | `cwalters@example.com` | AI/ML Engineer | 5yrs exp | Open to new roles |
+| Travis Taylor | `chelseakennedy@example.net` | AI/ML Engineer | 6yrs exp | Open to new roles |
+| Lori Lane | `wadeamber@example.net` | Frontend Developer | 2yrs exp | Open to new roles |
+| Marcus Clark | `chess@example.net` | DevOps Engineer | 8yrs exp | Open to new roles |
+| Michelle Anderson | `vanessaanderson@example.com` | AI/ML Engineer | 8yrs exp | Open to new roles |
 
 
 > [!TIP]
